@@ -1,10 +1,30 @@
+version: '3.8'
+
+# ==========================================
+# 网络配置
+# ==========================================
+networks:
+  aiot-net:
+    driver: bridge
+    name: aiot-net
+
+# ==========================================
+# 存储卷配置
+# ==========================================
+volumes:
+  mysql-data:
+  redis-data:
+  nacos-data:
+  emqx-data:
+
 services:
   # ==========================================
-  # 基础中间件 (Infrastructure)
+  # 第一部分：基础中间件 (Infrastructure)
   # ==========================================
   mysql:
     image: mysql:8.0
     container_name: aiot-mysql
+    restart: unless-stopped
     environment:
       MYSQL_ROOT_PASSWORD: root
       MYSQL_DATABASE: aiot_cloud
@@ -12,24 +32,53 @@ services:
     ports:
       - "3306:3306"
     volumes:
-      - ./data/mysql:/var/lib/mysql
+      - mysql-data:/var/lib/mysql
     networks:
       - aiot-net
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-proot"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1G
+        reservations:
+          cpus: '0.2'
+          memory: 512M
 
   redis:
     image: redis:7.0-alpine
     container_name: aiot-redis
+    restart: unless-stopped
     ports:
       - "6379:6379"
     volumes:
-      - ./data/redis:/data
+      - redis-data:/data
     networks:
       - aiot-net
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 256M
 
   nacos:
     image: nacos/nacos-server:v2.2.3
     platform: linux/amd64
     container_name: aiot-nacos
+    restart: unless-stopped
     environment:
       - PREFER_HOST_MODE=hostname
       - MODE=standalone
@@ -37,61 +86,158 @@ services:
     ports:
       - "8848:8848"
       - "9848:9848"
+    volumes:
+      - nacos-data:/home/nacos/data
     networks:
       - aiot-net
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8848/nacos/v1/console/health/readiness"]
+      interval: 20s
+      timeout: 5s
+      retries: 5
+      start_period: 40s
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1G
+        reservations:
+          cpus: '0.2'
+          memory: 512M
 
   emqx:
     image: emqx:5.3.0
     container_name: aiot-emqx
+    restart: unless-stopped
     ports:
       - "1883:1883"   # MQTT TCP
       - "8083:8083"   # MQTT WebSocket
       - "18083:18083" # EMQX Dashboard
+    volumes:
+      - emqx-data:/opt/emqx/data
     networks:
       - aiot-net
+    healthcheck:
+      test: ["CMD", "/opt/emqx/bin/emqx", "ping"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1G
+        reservations:
+          cpus: '0.2'
+          memory: 512M
 
   # ==========================================
-  # AIoT 微服务 (Microservices)
-  # 注：请在执行 mvn clean package 后构建镜像并启动
+  # 第二部分：AIoT 微服务 (Microservices)
+  # 统一拉取 GHCR 镜像，不再使用本地构建
   # ==========================================
   aiot-gateway:
-    build: 
-      context: .
-      dockerfile: Dockerfile
-      args:
-        JAR_FILE: aiot-gateway/target/*.jar
-        APP_NAME: aiot-gateway.jar
+    image: ghcr.io/aidencck/aiot-java/aiot-gateway:main
     container_name: aiot-gateway
+    restart: unless-stopped
     ports:
       - "8080:8080"
     environment:
+      - TZ=Asia/Shanghai
+      - SERVER_PORT=8080
+      - JAVA_OPTS=-Xms256m -Xmx256m
       - NACOS_ADDR=aiot-nacos:8848
     depends_on:
-      - nacos
+      nacos:
+        condition: service_healthy
     networks:
       - aiot-net
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/actuator/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 256M
 
   aiot-device-service:
-    build: 
-      context: .
-      dockerfile: Dockerfile
-      args:
-        JAR_FILE: aiot-device-service/target/*.jar
-        APP_NAME: aiot-device-service.jar
+    image: ghcr.io/aidencck/aiot-java/aiot-device-service:main
     container_name: aiot-device-service
+    restart: unless-stopped
     ports:
       - "8081:8081"
     environment:
+      - TZ=Asia/Shanghai
+      - SERVER_PORT=8081
+      - JAVA_OPTS=-Xms256m -Xmx256m
+      - NACOS_ADDR=aiot-nacos:8848
+      - MYSQL_HOST=aiot-mysql:3306
+      - REDIS_HOST=aiot-redis
+      - EMQX_HOST=aiot-emqx
+    depends_on:
+      nacos:
+        condition: service_healthy
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - aiot-net
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8081/actuator/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 256M
+
+  aiot-auth-service:
+    image: ghcr.io/aidencck/aiot-java/aiot-auth-service:main
+    container_name: aiot-auth-service
+    restart: unless-stopped
+    ports:
+      - "8082:8082"
+    environment:
+      - TZ=Asia/Shanghai
+      - SERVER_PORT=8082
+      - JAVA_OPTS=-Xms256m -Xmx256m
       - NACOS_ADDR=aiot-nacos:8848
       - MYSQL_HOST=aiot-mysql:3306
       - REDIS_HOST=aiot-redis
     depends_on:
-      - nacos
-      - mysql
-      - redis
+      nacos:
+        condition: service_healthy
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
     networks:
       - aiot-net
-
-networks:
-  aiot-net:
-    driver: bridge
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8082/actuator/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 256M

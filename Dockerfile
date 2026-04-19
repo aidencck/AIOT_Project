@@ -1,31 +1,48 @@
-# AIoT 微服务通用 Dockerfile
+# ==========================================
+# 第一阶段：构建并提取分层 (Builder Stage)
+# ==========================================
+FROM eclipse-temurin:17-jre-alpine AS builder
 
-FROM eclipse-temurin:17-jre-alpine
+WORKDIR /build
 
-# 定义构建参数
+# 接收构建参数
 ARG JAR_FILE=target/*.jar
 ARG APP_NAME="app.jar"
 
-# 环境变量设置默认值（可在 docker-compose 中覆盖）
-ENV TZ=Asia/Shanghai \
-    JAVA_OPTS="-Xms512m -Xmx512m -Djava.security.egd=file:/dev/./urandom" \
-    NACOS_ADDR="nacos:8848" \
-    MYSQL_HOST="mysql:3306" \
-    REDIS_HOST="redis"
-
-# 设置工作目录
-WORKDIR /app
-
-# 设置时区
-RUN apk add --no-cache tzdata && \
-    cp /usr/share/zoneinfo/Asia/Shanghai /etc/localtime && \
-    echo "Asia/Shanghai" > /etc/timezone
-
-# 复制编译后的 jar 包
+# 复制 JAR 包
 COPY ${JAR_FILE} ${APP_NAME}
 
-# 暴露端口由 docker-compose 控制
-EXPOSE 8080
+# 使用 Spring Boot 提供的 layertools 提取分层目录
+# Spring Boot 3.x 默认支持 layertools
+RUN java -Djarmode=layertools -jar ${APP_NAME} extract
 
-# 启动命令
-ENTRYPOINT ["sh", "-c", "java ${JAVA_OPTS} -jar ${APP_NAME}"]
+# ==========================================
+# 第二阶段：运行阶段 (Run Stage)
+# ==========================================
+FROM eclipse-temurin:17-jre-alpine
+
+WORKDIR /app
+
+# 设置环境变量
+ENV TZ=Asia/Shanghai \
+    JAVA_OPTS="-Xms512m -Xmx512m -XX:+UseG1GC -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=/app/logs/ -Djava.security.egd=file:/dev/./urandom" \
+    SERVER_PORT=8080
+
+# 配置时区和基础依赖
+RUN apk add --no-cache tzdata curl \
+    && cp /usr/share/zoneinfo/${TZ} /etc/localtime \
+    && echo "${TZ}" > /etc/timezone \
+    && mkdir -p /app/logs
+
+# 按照层级复制文件，利用 Docker 缓存加速构建 (频率低的依赖在上层，频率高的代码在下层)
+COPY --from=builder /build/dependencies/ ./
+COPY --from=builder /build/spring-boot-loader/ ./
+COPY --from=builder /build/snapshot-dependencies/ ./
+COPY --from=builder /build/application/ ./
+
+# 暴露端口 (可通过 docker-compose 覆盖或映射)
+EXPOSE ${SERVER_PORT}
+
+# Spring Boot 3.x 使用的启动类是 org.springframework.boot.loader.launch.JarLauncher
+# 相比直接 java -jar，分层启动速度更快，镜像复用率更高
+ENTRYPOINT ["sh", "-c", "java ${JAVA_OPTS} org.springframework.boot.loader.launch.JarLauncher"]
