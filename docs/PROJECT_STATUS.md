@@ -54,12 +54,26 @@
 
 ---
 
+## 🎯 里程碑 5：家庭空间与用户管理域 (User & Home Space Domain)
+**目标**：完成基于用户、家庭、房间和设备绑定的业务模型，实现面向 C 端用户的访问控制（RBAC）体系。
+
+### 📌 分配团队：**后端业务研发组 (Backend Team)** & **安全研发组 (Security Team)**
+
+*   [x] **任务 5.1：用户注册与认证中心 (Security)**
+    *   **内容**：实现用户的注册、登录逻辑，使用 JWT 进行 Token 签发与鉴权。
+*   [x] **任务 5.2：家庭与房间实体构建 (Backend)**
+    *   **内容**：在 `aiot-home-service` 中实现家庭 (Home) 和房间 (Room) 的生命周期管理。
+*   [x] **任务 5.3：基于家庭角色的权限控制体系 (Backend / Security)**
+    *   **内容**：引入 `@RequireHomeRole` 注解，利用 Spring AOP 拦截器实现 OWNER, ADMIN, MEMBER 等角色的细粒度权限校验，并接入 Redis 缓存 (`HomeCacheManager`) 以提升鉴权性能。
+
+---
+
 ## 🎯 里程碑 4：指令下发与全链路测试 (Command & E2E Testing)
 **目标**：完成云端 API 到边缘设备的控制下发，完成端到端闭环。
 
 ### 📌 分配团队：**测试团队 (QA)** & **全栈研发 (Fullstack)**
 
-*   [ ] **任务 4.1：云端指令下发通道建立 (Backend)**
+*   [x] **任务 4.1：云端指令下发通道建立 (Backend)**
     *   **内容**：`DeviceService` 接收到 API 控制指令后，通过 MQTT 客户端或 EMQX HTTP API 将 Payload 下发至 `/sys/{productId}/{deviceName}/thing/service/property/set`。
 *   [ ] **任务 4.2：指令回执与影子状态同步 (Backend)**
     *   **内容**：处理设备的执行 ACK 回执，更新 Redis 设备影子的 `reported` 状态，并通知调用方。
