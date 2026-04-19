@@ -1,0 +1,97 @@
+services:
+  # ==========================================
+  # 基础中间件 (Infrastructure)
+  # ==========================================
+  mysql:
+    image: mysql:8.0
+    container_name: aiot-mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: aiot_cloud
+      TZ: Asia/Shanghai
+    ports:
+      - "3306:3306"
+    volumes:
+      - ./data/mysql:/var/lib/mysql
+    networks:
+      - aiot-net
+
+  redis:
+    image: redis:7.0-alpine
+    container_name: aiot-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - ./data/redis:/data
+    networks:
+      - aiot-net
+
+  nacos:
+    image: nacos/nacos-server:v2.2.3
+    platform: linux/amd64
+    container_name: aiot-nacos
+    environment:
+      - PREFER_HOST_MODE=hostname
+      - MODE=standalone
+      - TZ=Asia/Shanghai
+    ports:
+      - "8848:8848"
+      - "9848:9848"
+    networks:
+      - aiot-net
+
+  emqx:
+    image: emqx:5.3.0
+    container_name: aiot-emqx
+    ports:
+      - "1883:1883"   # MQTT TCP
+      - "8083:8083"   # MQTT WebSocket
+      - "18083:18083" # EMQX Dashboard
+    networks:
+      - aiot-net
+
+  # ==========================================
+  # AIoT 微服务 (Microservices)
+  # 注：请在执行 mvn clean package 后构建镜像并启动
+  # ==========================================
+  aiot-gateway:
+    build: 
+      context: .
+      dockerfile: Dockerfile
+      args:
+        JAR_FILE: aiot-gateway/target/*.jar
+        APP_NAME: aiot-gateway.jar
+    container_name: aiot-gateway
+    ports:
+      - "8080:8080"
+    environment:
+      - NACOS_ADDR=aiot-nacos:8848
+    depends_on:
+      - nacos
+    networks:
+      - aiot-net
+
+  aiot-device-service:
+    build: 
+      context: .
+      dockerfile: Dockerfile
+      args:
+        JAR_FILE: aiot-device-service/target/*.jar
+        APP_NAME: aiot-device-service.jar
+    container_name: aiot-device-service
+    ports:
+      - "8081:8081"
+    environment:
+      - NACOS_ADDR=aiot-nacos:8848
+      - MYSQL_HOST=aiot-mysql:3306
+      - REDIS_HOST=aiot-redis
+    depends_on:
+      - nacos
+      - mysql
+      - redis
+    networks:
+      - aiot-net
+
+networks:
+  aiot-net:
+    driver: bridge

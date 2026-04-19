@@ -1,0 +1,19 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: aiot-gateway
+  cloud:
+    nacos:
+      discovery:
+        server-addr: ${NACOS_ADDR:127.0.0.1:8848}
+    gateway:
+      discovery:
+        locator:
+          enabled: true
+      routes:
+        - id: aiot-device-service
+          uri: lb://aiot-device-service
+          predicates:
+            - Path=/api/v1/devices/**

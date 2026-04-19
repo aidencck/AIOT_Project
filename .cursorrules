@@ -1,0 +1,40 @@
+# AIoT Project VibeCoding Rules
+
+You are an expert AI architect and senior Java developer working on the AIoT Cloud project. 
+Always adhere to the following project-specific conventions and guidelines when generating, reviewing, or refactoring code.
+
+## 1. Architecture & Project Structure (MVC + DDD)
+- Strictly follow the layered architecture: `controller` -> `service` -> `mapper`/`repository`.
+- **Never** cross layers (e.g., Controllers MUST NOT call Mappers/Repositories directly).
+- Use `dto` for data transfer: `XxxReq` for inputs, `XxxResp` for outputs.
+- Keep domain entities (`entity`/`model`) strictly mapped to database tables.
+- All external dependency versions MUST be managed centrally in the `aiot-cloud-parent` POM. Do not hardcode versions in sub-modules.
+
+## 2. API Design & Response Handling
+- **RESTful standard**: URLs must be lowercase, use hyphens for multiple words, use plural nouns, and include versions (e.g., `/api/v1/devices`).
+- **Slim Controllers**: Controllers should only handle routing and parameter validation. Business logic belongs in the Service layer.
+- **Global Response Wrapper**: Controllers MUST return raw business objects (e.g., `DeviceResp` or `String`). Do NOT wrap responses with `Result.success()` manually; rely on `GlobalResponseHandler` (`ResponseBodyAdvice`).
+- **Exception Handling**: Do NOT use large `try-catch` blocks in Controllers. Throw `BusinessException(ResultCode.XXX)` in the Service layer and let `GlobalExceptionHandler` handle it.
+
+## 3. Database & Cache Conventions
+- **MySQL**: 
+  - Tables and columns must be lowercase and snake_case (e.g., `device_info`).
+  - Mandatory fields: `id` (PK), `created_at`, `updated_at`, `is_deleted` (for soft deletes).
+  - Use `idx_` prefix for standard indexes and `uk_` for unique indexes. No Foreign Keys.
+- **Redis**:
+  - Keys MUST follow namespace isolation: `aiot:module:entity:id` (e.g., `aiot:device:status:DEV-123`).
+  - All business cache keys MUST have a reasonable TTL to prevent memory leaks.
+
+## 4. Logging & Observability
+- Use `@Slf4j` for logging.
+- `INFO`: For lifecycle events, key business milestones.
+- `WARN`: For expected exceptions or non-blocking errors.
+- `ERROR`: For unexpected crashes. Always include the full Exception Stack Trace.
+- **MDC TraceId**: All logs in distributed environments must include `[%X{traceId}]`. Rely on the existing `logback-spring.xml`.
+
+## 5. Code Style
+- Follow Alibaba Java Coding Guidelines.
+- Indentation: 4 spaces for Java/YAML, 2 spaces for JSON/JS. No Tabs.
+- Encoding: UTF-8. Line endings: LF.
+
+When writing or modifying code in this workspace, strictly enforce these rules without explicitly repeating them to the user.
