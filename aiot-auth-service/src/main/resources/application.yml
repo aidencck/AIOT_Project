@@ -11,8 +11,8 @@ spring:
   datasource:
     driver-class-name: com.mysql.cj.jdbc.Driver
     url: jdbc:mysql://${MYSQL_HOST:127.0.0.1:3306}/aiot_cloud?useUnicode=true&characterEncoding=utf-8&serverTimezone=Asia/Shanghai&useSSL=false
-    username: root
-    password: root
+    username: ${MYSQL_USER:root}
+    password: ${MYSQL_PASSWORD:root}
   data:
     redis:
       host: ${REDIS_HOST:127.0.0.1}

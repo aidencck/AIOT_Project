@@ -11,8 +11,8 @@ spring:
   datasource:
     driver-class-name: com.mysql.cj.jdbc.Driver
     url: jdbc:mysql://${MYSQL_HOST:127.0.0.1:3306}/aiot_cloud?useUnicode=true&characterEncoding=utf-8&serverTimezone=Asia/Shanghai&useSSL=false
-    username: root
-    password: root
+    username: ${MYSQL_USER:root}
+    password: ${MYSQL_PASSWORD:root}
   data:
     redis:
       host: ${REDIS_HOST:127.0.0.1}
@@ -21,8 +21,8 @@ spring:
 emqx:
   api:
     base-url: http://${EMQX_HOST:127.0.0.1}:18083
-    username: admin
-    password: public
+    username: ${EMQX_API_USER:admin}
+    password: ${EMQX_API_PASSWORD:public}
 
 mybatis-plus:
   mapper-locations: classpath*:/mapper/**/*.xml

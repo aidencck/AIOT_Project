@@ -26,7 +26,7 @@ services:
     container_name: aiot-mysql
     restart: unless-stopped
     environment:
-      MYSQL_ROOT_PASSWORD: root
+      MYSQL_ROOT_PASSWORD: ${MYSQL_PASSWORD:-root}
       MYSQL_DATABASE: aiot_cloud
       TZ: Asia/Shanghai
     ports:
@@ -166,7 +166,7 @@ services:
       - TZ=Asia/Shanghai
       - SERVER_PORT=8080
       - JAVA_OPTS=-Xms256m -Xmx256m
-      - NACOS_ADDR=aiot-nacos:8848
+      - NACOS_ADDR=${NACOS_ADDR:-aiot-nacos:8848}
     depends_on:
       nacos:
         condition: service_healthy
@@ -202,10 +202,11 @@ services:
       - TZ=Asia/Shanghai
       - SERVER_PORT=8081
       - JAVA_OPTS=-Xms256m -Xmx256m
-      - NACOS_ADDR=aiot-nacos:8848
-      - MYSQL_HOST=aiot-mysql:3306
-      - REDIS_HOST=aiot-redis
-      - EMQX_HOST=aiot-emqx
+      - NACOS_ADDR=${NACOS_ADDR:-aiot-nacos:8848}
+      - MYSQL_HOST=${MYSQL_HOST:-aiot-mysql:3306}
+      - MYSQL_PASSWORD=${MYSQL_PASSWORD:-root}
+      - REDIS_HOST=${REDIS_HOST:-aiot-redis}
+      - EMQX_HOST=${EMQX_HOST:-aiot-emqx}
     depends_on:
       nacos:
         condition: service_healthy
@@ -245,9 +246,10 @@ services:
       - TZ=Asia/Shanghai
       - SERVER_PORT=8082
       - JAVA_OPTS=-Xms256m -Xmx256m
-      - NACOS_ADDR=aiot-nacos:8848
-      - MYSQL_HOST=aiot-mysql:3306
-      - REDIS_HOST=aiot-redis
+      - NACOS_ADDR=${NACOS_ADDR:-aiot-nacos:8848}
+      - MYSQL_HOST=${MYSQL_HOST:-aiot-mysql:3306}
+      - MYSQL_PASSWORD=${MYSQL_PASSWORD:-root}
+      - REDIS_HOST=${REDIS_HOST:-aiot-redis}
     depends_on:
       nacos:
         condition: service_healthy

@@ -58,3 +58,6 @@ data/redis/
 .Trashes
 ehthumbs.db
 Thumbs.db
+
+# PID files
+*.pid
