@@ -10,14 +10,14 @@
 
 ### 📌 分配团队：**后端业务研发组 (Backend Team)** & **DBA**
 
-*   [ ] **任务 1.1：数据库 DDL 设计与建表 (DBA / Backend)**
+*   [x] **任务 1.1：数据库 DDL 设计与建表 (DBA / Backend)**
     *   **内容**：根据架构文档设计并执行 `tenant` (租户表)、`product` (产品表，含 JSON 类型的 `thing_model`)、`device` (设备表) 和 `device_credential` (设备凭证表) 的建表 SQL。
     *   **规范**：严格遵循《全局开发规范》中的软删除 (`is_deleted`) 和审计字段 (`created_at`, `updated_at`)。
-*   [ ] **任务 1.2：引入 MyBatis-Plus/Flex 框架 (Backend)**
+*   [x] **任务 1.2：引入 MyBatis-Plus/Flex 框架 (Backend)**
     *   **内容**：在 `aiot-cloud-parent` 和 `aiot-device-service` 中引入持久化层框架依赖，配置多数据源与代码生成器。
-*   [ ] **任务 1.3：设备与产品核心 API 真实落地 (Backend)**
+*   [x] **任务 1.3：设备与产品核心 API 真实落地 (Backend)**
     *   **内容**：重构 `DeviceServiceImpl`，实现真实的注册逻辑（写入 MySQL）和在线状态查询（从 Redis 获取）。
-*   [ ] **任务 1.4：设备影子 (Device Shadow) 缓存结构落地 (Backend)**
+*   [x] **任务 1.4：设备影子 (Device Shadow) 缓存结构落地 (Backend)**
     *   **内容**：在 `aiot-shadow-service` 中实现 Redis 的 Hash 结构操作，维护设备的 `reported` (上报状态) 和 `desired` (期望状态)。
 
 ---
@@ -27,13 +27,13 @@
 
 ### 📌 分配团队：**中间件团队 (Middleware Team)** & **安全研发组 (Security Team)**
 
-*   [ ] **任务 2.1：EMQX Broker 部署与调优 (Middleware)**
+*   [x] **任务 2.1：EMQX Broker 部署与调优 (Middleware)**
     *   **内容**：配置 EMQX 的集群模式，开启 Webhook 和 HTTP Auth 认证插件。
-*   [ ] **任务 2.2：设备接入鉴权接口开发 (Security)**
+*   [x] **任务 2.2：设备接入鉴权接口开发 (Security)**
     *   **内容**：在 `aiot-auth-service` 中开发供 EMQX 回调的 HTTP Auth 接口。实现算法：校验 `Username=DeviceId` 和 `Password=HMAC_SHA256(DeviceId, DeviceSecret)`。
-*   [ ] **任务 2.3：设备上下线事件流转 (Middleware)**
+*   [x] **任务 2.3：设备上下线事件流转 (Middleware)**
     *   **内容**：订阅 EMQX 的系统 Topic (`$SYS/brokers/+/clients/+/connected` 等)，或者通过 Webhook 将上下线事件推送到 Kafka。
-*   [ ] **任务 2.4：设备状态实时更新服务 (Backend)**
+*   [x] **任务 2.4：设备状态实时更新服务 (Backend)**
     *   **内容**：消费上下线 Kafka 事件，更新 Redis 中设备的在线状态，并写入设备活动日志。
 
 ---
