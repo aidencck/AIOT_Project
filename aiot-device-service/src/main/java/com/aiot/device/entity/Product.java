@@ -14,7 +14,7 @@ public class Product {
     private String productId;
     private String productName;
     private String description;
-    private Integer nodeType;
+    private String nodeType;
     private String thingModelJson;
     private Long tenantId;
     @TableLogic
