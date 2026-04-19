@@ -49,6 +49,11 @@ services:
         reservations:
           cpus: '0.2'
           memory: 512M
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "3"
 
   redis:
     image: redis:7.0-alpine
@@ -73,6 +78,11 @@ services:
         reservations:
           cpus: '0.1'
           memory: 256M
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "3"
 
   nacos:
     image: nacos/nacos-server:v2.2.3
@@ -104,6 +114,11 @@ services:
         reservations:
           cpus: '0.2'
           memory: 512M
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "3"
 
   emqx:
     image: emqx:5.3.0
@@ -131,6 +146,11 @@ services:
         reservations:
           cpus: '0.2'
           memory: 512M
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "3"
 
   # ==========================================
   # 第二部分：AIoT 微服务 (Microservices)
@@ -166,6 +186,11 @@ services:
         reservations:
           cpus: '0.1'
           memory: 256M
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "3"
 
   aiot-device-service:
     image: ghcr.io/aidencck/aiot-java/aiot-device-service:main
@@ -204,6 +229,11 @@ services:
         reservations:
           cpus: '0.1'
           memory: 256M
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "3"
 
   aiot-auth-service:
     image: ghcr.io/aidencck/aiot-java/aiot-auth-service:main

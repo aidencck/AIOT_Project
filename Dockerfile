@@ -28,11 +28,16 @@ ENV TZ=Asia/Shanghai \
     JAVA_OPTS="-Xms512m -Xmx512m -XX:+UseG1GC -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=/app/logs/ -Djava.security.egd=file:/dev/./urandom" \
     SERVER_PORT=8080
 
-# 配置时区和基础依赖
+# 配置时区和基础依赖，并创建非特权用户
 RUN apk add --no-cache tzdata curl \
     && cp /usr/share/zoneinfo/${TZ} /etc/localtime \
     && echo "${TZ}" > /etc/timezone \
-    && mkdir -p /app/logs
+    && mkdir -p /app/logs \
+    && addgroup -S spring && adduser -S springuser -G spring \
+    && chown -R springuser:spring /app
+
+# 切换到非特权用户
+USER springuser
 
 # 按照层级复制文件，利用 Docker 缓存加速构建 (频率低的依赖在上层，频率高的代码在下层)
 COPY --from=builder /build/dependencies/ ./
