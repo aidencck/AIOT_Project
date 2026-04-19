@@ -1,0 +1,134 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [ "main", "master" ]
+  pull_request:
+    branches: [ "main", "master" ]
+
+env:
+  REGISTRY: ghcr.io
+  # IMAGE_NAME default value is username/repository. Adjust if necessary.
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  build-and-test:
+    name: Build, Test and Code Analysis
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+          cache: maven
+
+      # 1. 代码检查与构建测试 (Code Check & Unit Tests)
+      - name: Build and Test with Maven
+        # 使用 -B 批处理模式，并打包执行所有模块的单元测试
+        run: mvn -B clean package --file pom.xml
+
+      # 2. 收集测试报告 (Collect Test Reports)
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: '**/target/surefire-reports/'
+          retention-days: 7
+
+      # 3. 收集编译后的 Jar 包，传递给下一个 Job 构建 Docker 镜像
+      - name: Upload JAR artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: built-jars
+          path: '*/target/*.jar'
+          retention-days: 1
+
+  docker-build:
+    name: Build and Push Docker Images
+    needs: build-and-test
+    runs-on: ubuntu-latest
+    # 仅在合并到主分支时推送镜像，如果是 PR 则只验证是否能成功构建
+    if: github.event_name == 'push' || github.event_name == 'pull_request'
+    strategy:
+      matrix:
+        service: 
+          - aiot-gateway
+          - aiot-auth-service
+          - aiot-device-service
+          - aiot-shadow-service
+          - aiot-rule-engine
+          - aiot-mqtt-adapter
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # 4. 下载上一个阶段构建好的 Jar 包
+      - name: Download JAR artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: built-jars
+          path: .
+
+      - name: Log in to the Container registry
+        # 如果是 PR 则不需要登录
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata (tags, labels) for Docker
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ github.repository }}/${{ matrix.service }}
+
+      # 5. 构建并推送 Docker 镜像 (Build & Push)
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./Dockerfile
+          # 在 PR 时仅构建，在 Push 时推送到 Registry
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            JAR_FILE=${{ matrix.service }}/target/*.jar
+            APP_NAME=${{ matrix.service }}.jar
+
+  deploy:
+    name: Deploy to Server
+    needs: docker-build
+    runs-on: ubuntu-latest
+    # 仅在 push 到主分支时触发部署
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # 6. 部署到目标服务器 (Deploy via Docker Compose)
+      - name: Deploy application
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          script: |
+            # 假设服务器上的项目路径为 /opt/aiot-cloud
+            cd /opt/aiot-cloud
+            # 拉取最新镜像
+            docker-compose pull
+            # 重启服务
+            docker-compose up -d --remove-orphans
+            # 清理旧镜像
+            docker image prune -f
