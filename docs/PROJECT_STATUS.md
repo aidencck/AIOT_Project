@@ -8,6 +8,8 @@
 ## 🎯 里程碑 1：持久化层与设备基础中心落地 (Persistence & Core Service)
 **目标**：打通 `aiot-device-service` 与 MySQL / Redis 的真实连接，废弃 ConcurrentHashMap 的 Mock 机制。
 
+> 架构整改任务池（P0/P1/P2）请统一参考：[architecture_remediation_backlog.md](file:///Users/aiden/Projects/AIOT-java/docs/architecture_remediation_backlog.md)
+
 ### 📌 分配团队：**后端业务研发组 (Backend Team)** & **DBA**
 
 *   [x] **任务 1.1：数据库 DDL 设计与建表 (DBA / Backend)**
