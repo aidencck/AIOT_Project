@@ -7,6 +7,7 @@
 
 - 架构现状：[`current-architecture.md`](current-architecture.md)
 - 能力矩阵：[`capability-matrix.md`](capability-matrix.md)
+- 系统优化路线：[`system-optimization-roadmap.md`](system-optimization-roadmap.md)
 - 环境与配置：[`environment-and-config.md`](environment-and-config.md)
 - 测试与排障：[`testing-and-troubleshooting.md`](testing-and-troubleshooting.md)
 - AI-native 总览：[`ai-native-overview.md`](ai-native-overview.md)
