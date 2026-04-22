@@ -24,6 +24,27 @@ emqx:
     username: ${EMQX_API_USER:admin}
     password: ${EMQX_API_PASSWORD:public}
 
+aiot:
+  internal:
+    token: ${AIOT_INTERNAL_TOKEN:change-me-internal-token}
+  security:
+    jwt:
+      secret: ${AIOT_JWT_SECRET:change-me-to-a-32-char-min-secret}
+  home-service:
+    base-url: ${AIOT_HOME_SERVICE_URL:http://127.0.0.1:8083}
+  rule-service:
+    base-url: ${AIOT_RULE_SERVICE_URL:http://127.0.0.1:8084}
+  mqtt:
+    host: ${AIOT_MQTT_HOST:mqtt.aiot.com}
+    port: ${AIOT_MQTT_PORT:1883}
+  events:
+    device-status-stream: ${AIOT_EVENTS_DEVICE_STATUS_STREAM:aiot:stream:device-event}
+    device-status-stream-group: ${AIOT_DEVICE_EVENTS_DEVICE_STATUS_STREAM_GROUP:aiot-device-service-group}
+    device-status-stream-consumer: ${AIOT_DEVICE_EVENTS_DEVICE_STATUS_STREAM_CONSUMER:${spring.application.name}}
+  device-status-buffer:
+    flush-interval-ms: ${AIOT_DEVICE_STATUS_BUFFER_FLUSH_INTERVAL_MS:1000}
+    max-batch-size: ${AIOT_DEVICE_STATUS_BUFFER_MAX_BATCH_SIZE:500}
+
 mybatis-plus:
   mapper-locations: classpath*:/mapper/**/*.xml
   global-config:
@@ -32,3 +53,11 @@ mybatis-plus:
       logic-delete-field: isDeleted
       logic-delete-value: 1
       logic-not-delete-value: 0
+
+springdoc:
+  api-docs:
+    path: /v3/api-docs
+  swagger-ui:
+    path: /swagger-ui.html
+    tags-sorter: alpha
+    operations-sorter: alpha
