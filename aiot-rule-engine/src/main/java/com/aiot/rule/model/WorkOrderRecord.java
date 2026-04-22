@@ -16,6 +16,8 @@ public class WorkOrderRecord {
     private Long resolvedAt;
     private String result;
     private Integer slaMinutes;
+    private Long dueAt;
+    private Boolean slaBreached;
     private Long createdAt;
     private Long updatedAt;
 }

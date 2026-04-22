@@ -72,13 +72,16 @@ public class OpsClosureService {
         appendAudit("ALARM_CREATED", "system", alarm.getAlarmId(), "ruleId=" + rule.getRuleId());
 
         if (autoCreateWorkOrder) {
+            int slaMinutes = "P1".equals(level) ? 15 : 60;
             WorkOrderRecord workOrder = WorkOrderRecord.builder()
                     .workOrderId(UUID.randomUUID().toString())
                     .alarmId(alarm.getAlarmId())
                     .deviceId(alarm.getDeviceId())
                     .priority(level)
                     .status("OPEN")
-                    .slaMinutes("P1".equals(level) ? 15 : 60)
+                    .slaMinutes(slaMinutes)
+                    .dueAt(now + slaMinutes * 60L * 1000L)
+                    .slaBreached(Boolean.FALSE)
                     .createdAt(now)
                     .updatedAt(now)
                     .build();
@@ -172,6 +175,7 @@ public class OpsClosureService {
 
         List<WorkOrderRecord> workOrders = listWorkOrders(null, null);
         long pending = workOrders.stream().filter(w -> !"RESOLVED".equalsIgnoreCase(w.getStatus())).count();
+        long slaBreachedCount = workOrders.stream().filter(w -> Boolean.TRUE.equals(w.getSlaBreached())).count();
         long resolved = workOrders.stream().filter(w -> "RESOLVED".equalsIgnoreCase(w.getStatus())).count();
         long oneTimeResolved = workOrders.stream()
                 .filter(w -> "RESOLVED".equalsIgnoreCase(w.getStatus()) && StringUtils.hasText(w.getResult()) && !w.getResult().contains("返工"))
@@ -182,9 +186,33 @@ public class OpsClosureService {
                 .onlineDeviceCount(online)
                 .offlineDeviceCount(offline)
                 .todayAlarmCount(todayAlarms)
-                .pendingWorkOrderCount((int) pending)
+                .pendingWorkOrderCount((int) (pending + slaBreachedCount))
                 .oneTimeResolveRate(oneTimeResolveRate)
                 .build();
+    }
+
+    public Integer checkAndMarkSlaBreached() {
+        List<WorkOrderRecord> workOrders = listWorkOrders(null, null);
+        long now = System.currentTimeMillis();
+        int changed = 0;
+        for (WorkOrderRecord workOrder : workOrders) {
+            if ("RESOLVED".equalsIgnoreCase(workOrder.getStatus())) {
+                continue;
+            }
+            if (Boolean.TRUE.equals(workOrder.getSlaBreached())) {
+                continue;
+            }
+            if (workOrder.getDueAt() == null || workOrder.getDueAt() >= now) {
+                continue;
+            }
+            workOrder.setSlaBreached(Boolean.TRUE);
+            workOrder.setStatus("SLA_BREACHED");
+            workOrder.setUpdatedAt(now);
+            saveWorkOrder(workOrder);
+            appendAudit("WORK_ORDER_SLA_BREACHED", "system", workOrder.getWorkOrderId(), "dueAt=" + workOrder.getDueAt());
+            changed++;
+        }
+        return changed;
     }
 
     public List<AuditRecord> listAudits(Integer limit) {

@@ -78,6 +78,11 @@ public class OpsAdminController {
         }
     }
 
+    @PostMapping("/work-orders/sla/check")
+    public Result<Integer> checkWorkOrderSla() {
+        return Result.success(opsClosureService.checkAndMarkSlaBreached());
+    }
+
     @GetMapping("/dashboard/overview")
     public Result<DashboardOverviewResponse> overview() {
         return Result.success(opsClosureService.getOverview());

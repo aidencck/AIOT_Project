@@ -8,3 +8,23 @@ spring:
     nacos:
       discovery:
         server-addr: ${NACOS_ADDR:127.0.0.1:8848}
+  data:
+    redis:
+      host: ${REDIS_HOST:127.0.0.1}
+      port: 6379
+
+aiot:
+  events:
+    device-status-stream: ${AIOT_EVENTS_DEVICE_STATUS_STREAM:aiot:stream:device-event}
+    device-status-stream-group: ${AIOT_RULE_EVENTS_DEVICE_STATUS_STREAM_GROUP:aiot-rule-engine-group}
+    device-status-stream-consumer: ${AIOT_RULE_EVENTS_DEVICE_STATUS_STREAM_CONSUMER:${spring.application.name}}
+  rule:
+    execution:
+      idempotency-ttl-seconds: ${AIOT_RULE_EXEC_IDEMPOTENCY_TTL_SECONDS:600}
+    action:
+      webhook:
+        timeout-ms: ${AIOT_RULE_ACTION_WEBHOOK_TIMEOUT_MS:2000}
+  ops:
+    sla-check:
+      enabled: ${AIOT_OPS_SLA_CHECK_ENABLED:true}
+      fixed-delay-ms: ${AIOT_OPS_SLA_CHECK_DELAY_MS:60000}
