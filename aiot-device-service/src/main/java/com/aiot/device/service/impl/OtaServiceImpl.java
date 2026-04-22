@@ -4,6 +4,7 @@ import com.aiot.common.api.ResultCode;
 import com.aiot.common.exception.BusinessException;
 import com.aiot.device.dto.FirmwarePackageCreateReq;
 import com.aiot.device.dto.FirmwarePackageResp;
+import com.aiot.device.dto.OtaTaskPageReq;
 import com.aiot.device.dto.OtaUpgradeRecordResp;
 import com.aiot.device.dto.OtaUpgradeReportReq;
 import com.aiot.device.dto.OtaUpgradeTaskCreateReq;
@@ -20,6 +21,8 @@ import com.aiot.device.mapper.OtaUpgradeTaskMapper;
 import com.aiot.device.mapper.ProductMapper;
 import com.aiot.device.service.OtaService;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.metadata.IPage;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
@@ -134,6 +137,22 @@ public class OtaServiceImpl implements OtaService {
         return otaUpgradeTaskMapper.selectList(wrapper).stream()
                 .map(task -> toTaskResp(task, false))
                 .collect(Collectors.toList());
+    }
+
+    @Override
+    public IPage<OtaUpgradeTaskResp> pageUpgradeTasks(OtaTaskPageReq req) {
+        int pageNo = req.getPageNo() == null || req.getPageNo() < 1 ? 1 : req.getPageNo();
+        int pageSize = req.getPageSize() == null || req.getPageSize() < 1 ? 20 : req.getPageSize();
+        pageSize = Math.min(pageSize, 200);
+
+        Page<OtaUpgradeTask> page = new Page<>(pageNo, pageSize);
+        LambdaQueryWrapper<OtaUpgradeTask> wrapper = new LambdaQueryWrapper<>();
+        wrapper.eq(OtaUpgradeTask::getHomeId, req.getHomeId())
+                .eq(StringUtils.hasText(req.getProductKey()), OtaUpgradeTask::getProductKey, req.getProductKey())
+                .eq(req.getStatus() != null, OtaUpgradeTask::getStatus, req.getStatus())
+                .orderByDesc(OtaUpgradeTask::getCreateTime);
+        IPage<OtaUpgradeTask> taskPage = otaUpgradeTaskMapper.selectPage(page, wrapper);
+        return taskPage.convert(task -> toTaskResp(task, false));
     }
 
     @Override

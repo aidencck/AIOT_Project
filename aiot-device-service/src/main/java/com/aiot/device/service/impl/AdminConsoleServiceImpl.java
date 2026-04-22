@@ -3,15 +3,21 @@ package com.aiot.device.service.impl;
 import com.aiot.common.api.Result;
 import com.aiot.common.api.ResultCode;
 import com.aiot.common.exception.BusinessException;
+import com.aiot.device.dto.AdminDevicePageReq;
 import com.aiot.device.dto.AdminConsoleOverviewResp;
 import com.aiot.device.dto.AdminLatestClosureResp;
+import com.aiot.device.dto.AdminOtaTaskPageReq;
+import com.aiot.device.dto.AdminPageResp;
+import com.aiot.device.dto.DevicePageReq;
 import com.aiot.device.dto.DeviceResp;
+import com.aiot.device.dto.OtaTaskPageReq;
 import com.aiot.device.dto.OtaUpgradeTaskResp;
 import com.aiot.device.dto.ProductResp;
 import com.aiot.device.service.AdminConsoleService;
 import com.aiot.device.service.DeviceService;
 import com.aiot.device.service.OtaService;
 import com.aiot.device.service.ProductService;
+import com.baomidou.mybatisplus.core.metadata.IPage;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.stereotype.Service;
@@ -81,6 +87,48 @@ public class AdminConsoleServiceImpl implements AdminConsoleService {
                 .devices(devices)
                 .otaTasks(otaTasks)
                 .opsOverview(ops)
+                .build();
+    }
+
+    @Override
+    public AdminPageResp<DeviceResp> pageDevices(AdminDevicePageReq req, String authorizationHeader) {
+        ensureAuthorizationHeader(authorizationHeader);
+        List<Map<String, Object>> homes = loadHomes(authorizationHeader);
+        String selectedHomeId = pickHomeId(req.getHomeId(), homes);
+
+        DevicePageReq deviceReq = new DevicePageReq();
+        deviceReq.setHomeId(selectedHomeId);
+        deviceReq.setProductKey(req.getProductKey());
+        deviceReq.setStatus(req.getStatus());
+        deviceReq.setPageNo(req.getPageNo());
+        deviceReq.setPageSize(req.getPageSize());
+        IPage<DeviceResp> page = deviceService.pageDevices(deviceReq);
+        return AdminPageResp.<DeviceResp>builder()
+                .total(page.getTotal())
+                .pageNo((int) page.getCurrent())
+                .pageSize((int) page.getSize())
+                .records(page.getRecords())
+                .build();
+    }
+
+    @Override
+    public AdminPageResp<OtaUpgradeTaskResp> pageOtaTasks(AdminOtaTaskPageReq req, String authorizationHeader) {
+        ensureAuthorizationHeader(authorizationHeader);
+        List<Map<String, Object>> homes = loadHomes(authorizationHeader);
+        String selectedHomeId = pickHomeId(req.getHomeId(), homes);
+
+        OtaTaskPageReq otaReq = new OtaTaskPageReq();
+        otaReq.setHomeId(selectedHomeId);
+        otaReq.setProductKey(req.getProductKey());
+        otaReq.setStatus(req.getStatus());
+        otaReq.setPageNo(req.getPageNo());
+        otaReq.setPageSize(req.getPageSize());
+        IPage<OtaUpgradeTaskResp> page = otaService.pageUpgradeTasks(otaReq);
+        return AdminPageResp.<OtaUpgradeTaskResp>builder()
+                .total(page.getTotal())
+                .pageNo((int) page.getCurrent())
+                .pageSize((int) page.getSize())
+                .records(page.getRecords())
                 .build();
     }
 

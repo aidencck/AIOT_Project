@@ -2,7 +2,13 @@ package com.aiot.device.controller;
 
 import com.aiot.device.dto.AdminConsoleOverviewResp;
 import com.aiot.device.dto.AdminLatestClosureResp;
+import com.aiot.device.dto.AdminDevicePageReq;
+import com.aiot.device.dto.AdminOtaTaskPageReq;
+import com.aiot.device.dto.AdminPageResp;
+import com.aiot.device.dto.DeviceResp;
+import com.aiot.device.dto.OtaUpgradeTaskResp;
 import com.aiot.device.service.AdminConsoleService;
+import jakarta.validation.Valid;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestHeader;
@@ -31,5 +37,17 @@ public class AdminConsoleController {
     public AdminLatestClosureResp latestClosure(@RequestParam(required = false) String homeId,
                                                 @RequestHeader("Authorization") String authorizationHeader) {
         return adminConsoleService.getLatestClosure(homeId, authorizationHeader);
+    }
+
+    @GetMapping("/devices/page")
+    public AdminPageResp<DeviceResp> pageDevices(@Valid AdminDevicePageReq req,
+                                                 @RequestHeader("Authorization") String authorizationHeader) {
+        return adminConsoleService.pageDevices(req, authorizationHeader);
+    }
+
+    @GetMapping("/ota/tasks/page")
+    public AdminPageResp<OtaUpgradeTaskResp> pageOtaTasks(@Valid AdminOtaTaskPageReq req,
+                                                          @RequestHeader("Authorization") String authorizationHeader) {
+        return adminConsoleService.pageOtaTasks(req, authorizationHeader);
     }
 }

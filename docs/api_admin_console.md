@@ -33,3 +33,35 @@
 ## 3) 说明
 - 前端建议先调用 `/overview` 渲染首页指标，再按需调用 `/latest-closure` 填充列表页。
 - 若用户未绑定家庭，接口会返回业务错误提示。
+
+## 4) 设备分页接口（前端列表页）
+- `GET /api/v1/admin-console/devices/page`
+- Header: `Authorization: Bearer <token>`
+- Query:
+  - `homeId`（可选，不传默认首个家庭）
+  - `productKey`（可选）
+  - `status`（可选，0未激活/1在线/2离线）
+  - `pageNo`（可选，默认 1）
+  - `pageSize`（可选，默认 20，最大 200）
+
+返回字段：
+- `total`
+- `pageNo`
+- `pageSize`
+- `records`（`DeviceResp` 列表）
+
+## 5) OTA任务分页接口（前端列表页）
+- `GET /api/v1/admin-console/ota/tasks/page`
+- Header: `Authorization: Bearer <token>`
+- Query:
+  - `homeId`（可选，不传默认首个家庭）
+  - `productKey`（可选）
+  - `status`（可选，1进行中/2已完成）
+  - `pageNo`（可选，默认 1）
+  - `pageSize`（可选，默认 20，最大 200）
+
+返回字段：
+- `total`
+- `pageNo`
+- `pageSize`
+- `records`（`OtaUpgradeTaskResp` 列表）
