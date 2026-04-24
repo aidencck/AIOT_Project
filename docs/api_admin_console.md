@@ -65,3 +65,11 @@
 - `pageNo`
 - `pageSize`
 - `records`（`OtaUpgradeTaskResp` 列表）
+
+## 6) 内嵌管理页面（Spring Boot 静态资源）
+- 访问地址：`GET /admin`（重定向到 `/admin/index.html`）
+- 页面能力：
+  - 首页总览卡片（overview）
+  - 设备分页列表（devices/page）
+  - OTA任务分页列表（ota/tasks/page）
+- 鉴权方式：页面右上角输入 Token（支持仅粘贴 token，页面自动补 `Bearer ` 前缀）
