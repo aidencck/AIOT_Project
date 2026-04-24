@@ -8,3 +8,32 @@ spring:
     nacos:
       discovery:
         server-addr: ${NACOS_ADDR:127.0.0.1:8848}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus
+  endpoint:
+    health:
+      probes:
+        enabled: true
+      show-details: when_authorized
+  health:
+    livenessstate:
+      enabled: true
+    readinessstate:
+      enabled: true
+  prometheus:
+    metrics:
+      export:
+        enabled: true
+  metrics:
+    tags:
+      application: ${spring.application.name}
+      env: ${AIOT_ENV:local}
+    distribution:
+      percentiles-histogram:
+        http:
+          server:
+            requests: true

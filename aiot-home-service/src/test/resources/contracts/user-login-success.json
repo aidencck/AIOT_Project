@@ -1,0 +1,12 @@
+{
+  "name": "user-login-success",
+  "httpStatus": 200,
+  "requiredJsonPaths": [
+    "$.code",
+    "$.message",
+    "$.data",
+    "$.data.token",
+    "$.data.userId",
+    "$.data.nickname"
+  ]
+}

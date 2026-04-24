@@ -4,6 +4,10 @@ server:
 spring:
   application:
     name: aiot-rule-engine
+  autoconfigure:
+    exclude:
+      - org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration
+      - org.mybatis.spring.boot.autoconfigure.MybatisAutoConfiguration
   cloud:
     nacos:
       discovery:
@@ -16,8 +20,13 @@ spring:
 aiot:
   events:
     device-status-stream: ${AIOT_EVENTS_DEVICE_STATUS_STREAM:aiot:stream:device-event}
+    device-status-dlq-stream: ${AIOT_EVENTS_DEVICE_STATUS_DLQ_STREAM:aiot:stream:device-event:dlq}
     device-status-stream-group: ${AIOT_RULE_EVENTS_DEVICE_STATUS_STREAM_GROUP:aiot-rule-engine-group}
     device-status-stream-consumer: ${AIOT_RULE_EVENTS_DEVICE_STATUS_STREAM_CONSUMER:${spring.application.name}}
+    pending-reclaim:
+      enabled: ${AIOT_EVENTS_PENDING_RECLAIM_ENABLED:true}
+      fixed-delay-ms: ${AIOT_EVENTS_PENDING_RECLAIM_FIXED_DELAY_MS:30000}
+      max-batch-size: ${AIOT_EVENTS_PENDING_RECLAIM_MAX_BATCH_SIZE:64}
   rule:
     execution:
       idempotency-ttl-seconds: ${AIOT_RULE_EXEC_IDEMPOTENCY_TTL_SECONDS:600}
@@ -28,3 +37,32 @@ aiot:
     sla-check:
       enabled: ${AIOT_OPS_SLA_CHECK_ENABLED:true}
       fixed-delay-ms: ${AIOT_OPS_SLA_CHECK_DELAY_MS:60000}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus
+  endpoint:
+    health:
+      probes:
+        enabled: true
+      show-details: when_authorized
+  health:
+    livenessstate:
+      enabled: true
+    readinessstate:
+      enabled: true
+  prometheus:
+    metrics:
+      export:
+        enabled: true
+  metrics:
+    tags:
+      application: ${spring.application.name}
+      env: ${AIOT_ENV:local}
+    distribution:
+      percentiles-histogram:
+        http:
+          server:
+            requests: true

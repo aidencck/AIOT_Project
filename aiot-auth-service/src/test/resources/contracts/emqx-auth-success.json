@@ -1,0 +1,5 @@
+{
+  "name": "emqx-auth-success",
+  "httpStatus": 200,
+  "body": "allow"
+}
