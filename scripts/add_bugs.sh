@@ -1,0 +1,3 @@
+gh issue create --repo aidencck/AIOT_Project --title "[Bugfix-01] 修复跨模块组件扫描失效问题" --body "aiot-common 的组件(如 GlobalExceptionHandler, TraceIdFilter)未在 aiot-auth-service 生效，因为缺少 @ComponentScan('com.aiot') 扫描包。" --milestone "Sprint 0: 基础设施与架构基建" --label "bug"
+gh issue create --repo aidencck/AIOT_Project --title "[Bugfix-02] 补全 TraceId 跨线程与跨服务透传" --body "目前 TraceId 仅存在于单线程，若使用 @Async 或 FeignClient，MDC 将会丢失。需要补充 MDC 线程池装饰器和 Feign 拦截器。" --milestone "Sprint 0: 基础设施与架构基建" --label "bug"
+gh issue create --repo aidencck/AIOT_Project --title "[Bugfix-03] 完善 GlobalExceptionHandler" --body "增加 HTTP 状态码同步 (添加 @ResponseStatus)，避免 500 异常返回 HTTP 200，并补充对 HttpRequestMethodNotSupportedException 和 ConstraintViolationException 的拦截。" --milestone "Sprint 0: 基础设施与架构基建" --label "bug"

@@ -1,19 +1,27 @@
 #!/bin/bash
-echo "Packaging all modules..."
-mvn clean package -DskipTests
+set -euo pipefail
 
-echo "Starting Gateway Service..."
-nohup java -jar aiot-gateway/target/aiot-gateway-1.0.0-SNAPSHOT.jar > aiot-gateway.log 2>&1 &
-echo $! > gateway.pid
+if ! command -v docker >/dev/null 2>&1; then
+  echo "Docker is required but not found."
+  exit 1
+fi
 
-echo "Starting Device Service..."
-nohup java -jar aiot-device-service/target/aiot-device-service-1.0.0-SNAPSHOT.jar > aiot-device-service.log 2>&1 &
-echo $! > device.pid
+COMPOSE_CMD="docker compose"
+if ! docker compose version >/dev/null 2>&1; then
+  if command -v docker-compose >/dev/null 2>&1; then
+    COMPOSE_CMD="docker-compose"
+  else
+    echo "Docker Compose is required but not found."
+    exit 1
+  fi
+fi
 
-echo "Starting Auth Service..."
-nohup java -jar aiot-auth-service/target/aiot-auth-service-1.0.0-SNAPSHOT.jar > aiot-auth-service.log 2>&1 &
-echo $! > auth.pid
+IMAGE_TAG="${IMAGE_TAG:-main}"
+export IMAGE_TAG
 
-echo "Waiting for services to register with Nacos (30 seconds)..."
-sleep 30
-echo "Services started."
+echo "Deploying with Docker Compose only (IMAGE_TAG=${IMAGE_TAG})..."
+${COMPOSE_CMD} pull
+${COMPOSE_CMD} up -d --remove-orphans
+${COMPOSE_CMD} ps
+
+echo "Deployment finished. Services are running in Docker containers."

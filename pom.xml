@@ -17,10 +17,11 @@
         <module>aiot-gateway</module>
         <module>aiot-auth-service</module>
         <module>aiot-device-service</module>
-        <module>aiot-shadow-service</module>
-        <module>aiot-rule-engine</module>
         <module>aiot-mqtt-adapter</module>
+        <module>aiot-rule-engine</module>
+        <module>aiot-shadow-service</module>
         <module>aiot-data-parser</module>
+        <module>aiot-home-service</module>
     </modules>
 
     <properties>
@@ -35,6 +36,7 @@
         <lombok.version>1.18.30</lombok.version>
         <mybatis-plus.version>3.5.5</mybatis-plus.version>
         <mysql.version>8.0.33</mysql.version>
+        <springdoc.version>2.5.0</springdoc.version>
     </properties>
 
     <dependencyManagement>
@@ -81,6 +83,11 @@
                 <groupId>mysql</groupId>
                 <artifactId>mysql-connector-java</artifactId>
                 <version>${mysql.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.springdoc</groupId>
+                <artifactId>springdoc-openapi-starter-webmvc-ui</artifactId>
+                <version>${springdoc.version}</version>
             </dependency>
         </dependencies>
     </dependencyManagement>

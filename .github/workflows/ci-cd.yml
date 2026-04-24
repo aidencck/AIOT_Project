@@ -6,14 +6,407 @@ on:
   pull_request:
     branches: [ "main", "master" ]
 
+concurrency:
+  group: ci-cd-${{ github.ref }}
+  cancel-in-progress: true
+
 env:
   REGISTRY: ghcr.io
   # IMAGE_NAME default value is username/repository. Adjust if necessary.
   IMAGE_NAME: ${{ github.repository }}
 
 jobs:
+  detect-changes:
+    name: Detect Changed Services
+    runs-on: ubuntu-latest
+    outputs:
+      services: ${{ steps.select.outputs.services }}
+      maven_modules: ${{ steps.select.outputs.maven_modules }}
+      has_changes: ${{ steps.select.outputs.has_changes }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Detect file changes
+        id: filter
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            shared:
+              - 'pom.xml'
+              - 'Dockerfile'
+              - '.github/workflows/ci-cd.yml'
+              - 'scripts/**'
+              - 'aiot-common/**'
+              - 'aiot-data-parser/**'
+            aiot_gateway:
+              - 'aiot-gateway/**'
+            aiot_auth_service:
+              - 'aiot-auth-service/**'
+            aiot_device_service:
+              - 'aiot-device-service/**'
+            aiot_home_service:
+              - 'aiot-home-service/**'
+            aiot_shadow_service:
+              - 'aiot-shadow-service/**'
+            aiot_rule_engine:
+              - 'aiot-rule-engine/**'
+            aiot_mqtt_adapter:
+              - 'aiot-mqtt-adapter/**'
+
+      - name: Build service matrix
+        id: select
+        env:
+          SHARED_CHANGED: ${{ steps.filter.outputs.shared }}
+          GATEWAY_CHANGED: ${{ steps.filter.outputs.aiot_gateway }}
+          AUTH_CHANGED: ${{ steps.filter.outputs.aiot_auth_service }}
+          DEVICE_CHANGED: ${{ steps.filter.outputs.aiot_device_service }}
+          HOME_CHANGED: ${{ steps.filter.outputs.aiot_home_service }}
+          SHADOW_CHANGED: ${{ steps.filter.outputs.aiot_shadow_service }}
+          RULE_CHANGED: ${{ steps.filter.outputs.aiot_rule_engine }}
+          MQTT_CHANGED: ${{ steps.filter.outputs.aiot_mqtt_adapter }}
+        run: |
+          python - <<'PY'
+          import json
+          import os
+
+          all_services = [
+              "aiot-gateway",
+              "aiot-auth-service",
+              "aiot-device-service",
+              "aiot-home-service",
+              "aiot-shadow-service",
+              "aiot-rule-engine",
+              "aiot-mqtt-adapter",
+          ]
+
+          if os.getenv("SHARED_CHANGED") == "true":
+              selected = all_services
+          else:
+              changed_flags = {
+                  "aiot-gateway": os.getenv("GATEWAY_CHANGED"),
+                  "aiot-auth-service": os.getenv("AUTH_CHANGED"),
+                  "aiot-device-service": os.getenv("DEVICE_CHANGED"),
+                  "aiot-home-service": os.getenv("HOME_CHANGED"),
+                  "aiot-shadow-service": os.getenv("SHADOW_CHANGED"),
+                  "aiot-rule-engine": os.getenv("RULE_CHANGED"),
+                  "aiot-mqtt-adapter": os.getenv("MQTT_CHANGED"),
+              }
+              selected = [svc for svc, changed in changed_flags.items() if changed == "true"]
+
+          outputs = {
+              "services": json.dumps(selected),
+              "maven_modules": ",".join(selected),
+              "has_changes": "true" if selected else "false",
+          }
+
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as fh:
+              for key, value in outputs.items():
+                  fh.write(f"{key}={value}\n")
+          PY
+
   build-and-test:
     name: Build, Test and Code Analysis
+    needs: detect-changes
+    if: needs.detect-changes.outputs.has_changes == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Secret scan with Gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+          cache: maven
+
+      - name: Dependency vulnerability scan with Trivy
+        uses: aquasecurity/trivy-action@0.24.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          vuln-type: library
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: '1'
+
+      - name: Security hard gate for weak secrets in changed files
+        run: |
+          python - <<'PY'
+          import re
+          import subprocess
+          import sys
+          from pathlib import Path
+
+          try:
+              changed_files = subprocess.check_output(
+                  ["git", "diff", "--name-only", "HEAD~1", "HEAD"],
+                  text=True
+              ).splitlines()
+          except subprocess.CalledProcessError:
+              changed_files = subprocess.check_output(
+                  ["git", "ls-files"],
+                  text=True
+              ).splitlines()
+          target_suffix = (".yml", ".yaml", ".properties", ".env", ".conf", ".toml")
+          weak_value_re = re.compile(r"(change-me|default[-_]?token|public|root|123456|changeme)", re.IGNORECASE)
+          secret_key_re = re.compile(r"(token|secret|password|passwd|pwd|apikey|api_key)", re.IGNORECASE)
+
+          violations = []
+          for rel_path in changed_files:
+              if not rel_path.endswith(target_suffix):
+                  continue
+              path = Path(rel_path)
+              if not path.exists():
+                  continue
+              for idx, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
+                  striped = line.strip()
+                  if striped.startswith("#") or striped.startswith("//"):
+                      continue
+                  pair = re.split(r"[:=]", striped, maxsplit=1)
+                  key = pair[0].strip() if pair else ""
+                  value = pair[1].strip() if len(pair) > 1 else ""
+                  if secret_key_re.search(key) and weak_value_re.search(value):
+                      violations.append(f"{rel_path}:{idx}: {striped}")
+
+          if violations:
+              print("Security hard gate failed. Weak default secrets detected:")
+              for item in violations:
+                  print(f" - {item}")
+              sys.exit(1)
+
+          print("Security hard gate passed")
+          PY
+
+      # 1. 代码检查与构建测试 (Code Check & Unit Tests)
+      - name: Build and Test with Maven
+        # 使用并行线程并按变更模块增量构建（含依赖模块）
+        run: mvn -B -T 1C -pl "${{ needs.detect-changes.outputs.maven_modules }}" -am clean verify --file pom.xml
+
+      - name: Coverage hard gate
+        run: |
+          python - <<'PY'
+          import os
+          import pathlib
+          import sys
+          import xml.etree.ElementTree as ET
+
+          modules = [m.strip() for m in os.getenv("MODULES", "").split(",") if m.strip()]
+          min_line = 0.60
+          min_branch = 0.40
+
+          reports = []
+          for module in modules:
+              report = pathlib.Path(module) / "target/site/jacoco/jacoco.xml"
+              if report.exists():
+                  reports.append((module, report))
+
+          if not reports:
+              print("Coverage hard gate failed: no jacoco report found for changed modules.")
+              sys.exit(1)
+
+          failed = []
+          for module, report in reports:
+              root = ET.parse(report).getroot()
+              counters = {c.attrib["type"]: c.attrib for c in root.findall("counter")}
+              line = counters.get("LINE")
+              branch = counters.get("BRANCH")
+              if line is None or branch is None:
+                  failed.append((module, "missing LINE/BRANCH counter"))
+                  continue
+
+              line_total = int(line["missed"]) + int(line["covered"])
+              branch_total = int(branch["missed"]) + int(branch["covered"])
+              line_ratio = (int(line["covered"]) / line_total) if line_total else 0.0
+              branch_ratio = (int(branch["covered"]) / branch_total) if branch_total else 0.0
+
+              print(f"{module}: line={line_ratio:.2%}, branch={branch_ratio:.2%}")
+              if line_ratio < min_line or branch_ratio < min_branch:
+                  failed.append((module, f"line={line_ratio:.2%}, branch={branch_ratio:.2%}"))
+
+          if failed:
+              print("Coverage hard gate failed:")
+              for module, reason in failed:
+                  print(f" - {module}: {reason}")
+              sys.exit(1)
+
+          print("Coverage hard gate passed")
+          PY
+        env:
+          MODULES: ${{ needs.detect-changes.outputs.maven_modules }}
+
+      # 2. 收集测试报告 (Collect Test Reports)
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: '**/target/surefire-reports/'
+          retention-days: 7
+
+      - name: Upload coverage reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-reports
+          path: '**/target/site/jacoco/jacoco.xml'
+          retention-days: 7
+
+      # 3. 收集编译后的 Jar 包，传递给下一个 Job 构建 Docker 镜像
+      - name: Upload JAR artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: built-jars
+          path: '*/target/*.jar'
+          retention-days: 1
+
+  communication-guard:
+    name: Communication Guardrails
+    needs: detect-changes
+    if: needs.detect-changes.outputs.has_changes == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install script tooling
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y shellcheck jq
+
+      - name: Validate integration scripts syntax
+        run: |
+          bash -n scripts/test_provision_and_webhook.sh
+          bash -n scripts/test_service_communication.sh
+          shellcheck scripts/test_provision_and_webhook.sh scripts/test_service_communication.sh
+
+      - name: Validate internal communication configs
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import sys
+
+          root = Path(".")
+          checks = [
+              ("aiot-device-service/src/main/resources/application.yml", "aiot.internal.token"),
+              ("aiot-auth-service/src/main/resources/application.yml", "aiot.internal.token"),
+              ("aiot-home-service/src/main/resources/application.yml", "aiot.internal.token"),
+              ("docker-compose.yml", "AIOT_INTERNAL_TOKEN"),
+              ("docker-compose.yml", "AIOT_EMQX_WEBHOOK_SECRET"),
+          ]
+
+          failed = []
+          for rel, needle in checks:
+              text = (root / rel).read_text(encoding="utf-8")
+              if needle not in text:
+                  failed.append(f"{rel} missing `{needle}`")
+
+          if failed:
+              print("Communication guard failed:")
+              for line in failed:
+                  print(" -", line)
+              sys.exit(1)
+          print("Communication guard passed")
+          PY
+
+  observability-smoke:
+    name: Observability Smoke Check
+    needs: detect-changes
+    if: needs.detect-changes.outputs.has_changes == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Validate observability baseline for changed services
+        env:
+          MODULES: ${{ needs.detect-changes.outputs.maven_modules }}
+        run: |
+          python - <<'PY'
+          import os
+          import sys
+          from pathlib import Path
+
+          modules = [m.strip() for m in os.getenv("MODULES", "").split(",") if m.strip()]
+          if not modules:
+              print("No changed services, skip observability smoke check.")
+              sys.exit(0)
+
+          root = Path(".")
+          failed = []
+
+          required_dependencies = [
+              "<artifactId>spring-boot-starter-actuator</artifactId>",
+              "<artifactId>micrometer-registry-prometheus</artifactId>",
+          ]
+
+          required_config_tokens = [
+              "management:",
+              "endpoints:",
+              "exposure:",
+              "include: health,info,prometheus",
+              "probes:",
+              "enabled: true",
+              "livenessstate:",
+              "readinessstate:",
+              "prometheus:",
+              "export:",
+          ]
+
+          for module in modules:
+              pom = root / module / "pom.xml"
+              app = root / module / "src/main/resources/application.yml"
+
+              if not pom.exists():
+                  failed.append(f"{module}: missing pom.xml")
+                  continue
+              if not app.exists():
+                  failed.append(f"{module}: missing application.yml")
+                  continue
+
+              pom_text = pom.read_text(encoding="utf-8")
+              app_text = app.read_text(encoding="utf-8")
+
+              for dep in required_dependencies:
+                  if dep not in pom_text:
+                      failed.append(f"{module}: missing dependency {dep}")
+
+              for token in required_config_tokens:
+                  if token not in app_text:
+                      failed.append(f"{module}: missing config token `{token}`")
+
+              if "/actuator/prometheus" in app_text:
+                  failed.append(f"{module}: do not hardcode endpoint path, configure management keys instead")
+
+          compose = (root / "docker-compose.yml").read_text(encoding="utf-8")
+          compose_required = [
+              "http://localhost:8080/actuator/health/readiness",
+              "http://localhost:8081/actuator/health/readiness",
+              "http://localhost:8082/actuator/health/readiness",
+          ]
+          for token in compose_required:
+              if token not in compose:
+                  failed.append(f"docker-compose.yml missing healthcheck `{token}`")
+
+          if failed:
+              print("Observability smoke check failed:")
+              for item in failed:
+                  print(f" - {item}")
+              sys.exit(1)
+
+          print("Observability smoke check passed")
+          PY
+
+  observability-runtime-smoke:
+    name: Observability Runtime Smoke
+    needs: detect-changes
+    if: needs.detect-changes.outputs.has_changes == 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -26,43 +419,197 @@ jobs:
           distribution: 'temurin'
           cache: maven
 
-      # 1. 代码检查与构建测试 (Code Check & Unit Tests)
-      - name: Build and Test with Maven
-        # 使用 -B 批处理模式，并打包执行所有模块的单元测试
-        run: mvn -B clean package --file pom.xml
+      - name: Runtime smoke check for standalone services
+        env:
+          MODULES: ${{ needs.detect-changes.outputs.maven_modules }}
+        run: |
+          set -euo pipefail
+          export MYSQL_PASSWORD="runtime-smoke-mysql-password-123456"
 
-      # 2. 收集测试报告 (Collect Test Reports)
-      - name: Upload test results
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: test-results
-          path: '**/target/surefire-reports/'
-          retention-days: 7
+          pids=()
+          infra_started="0"
 
-      # 3. 收集编译后的 Jar 包，传递给下一个 Job 构建 Docker 镜像
-      - name: Upload JAR artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: built-jars
-          path: '*/target/*.jar'
-          retention-days: 1
+          cleanup() {
+            for pid in "${pids[@]:-}"; do
+              kill "${pid}" 2>/dev/null || true
+              wait "${pid}" 2>/dev/null || true
+            done
+            if [[ "${infra_started}" == "1" ]]; then
+              docker compose stop mysql redis nacos >/dev/null 2>&1 || true
+              docker compose rm -f mysql redis nacos >/dev/null 2>&1 || true
+            fi
+          }
+          trap cleanup EXIT
+
+          start_infra_if_needed() {
+            if [[ "${infra_started}" == "1" ]]; then
+              return
+            fi
+            echo "Starting infra services: mysql/redis/nacos ..."
+            docker compose up -d mysql redis nacos
+            for _ in $(seq 1 60); do
+              if curl -fsS "http://127.0.0.1:8848/nacos/v1/console/health/readiness" >/dev/null; then
+                infra_started="1"
+                echo "Infra services are ready."
+                return
+              fi
+              sleep 3
+            done
+            echo "Infra startup timeout."
+            docker compose ps
+            return 1
+          }
+
+          run_runtime_smoke() {
+            local module="$1"
+            local port="$2"
+            local extra_env="${3:-}"
+            local log_file="/tmp/${module}.log"
+            local pid=""
+
+            echo "Starting ${module} on port ${port} ..."
+            if [[ -n "${extra_env}" ]]; then
+              env ${extra_env} mvn -B -pl "${module}" -DskipTests spring-boot:run >"${log_file}" 2>&1 &
+            else
+              mvn -B -pl "${module}" -DskipTests spring-boot:run >"${log_file}" 2>&1 &
+            fi
+            pid=$!
+            pids+=("${pid}")
+
+            local ok="0"
+            for _ in $(seq 1 60); do
+              if curl -fsS "http://127.0.0.1:${port}/actuator/health/readiness" >/dev/null \
+                && curl -fsS "http://127.0.0.1:${port}/actuator/prometheus" >/dev/null; then
+                ok="1"
+                break
+              fi
+              sleep 2
+            done
+
+            kill "${pid}" 2>/dev/null || true
+            wait "${pid}" 2>/dev/null || true
+            pids=("${pids[@]/$pid}")
+
+            if [[ "${ok}" != "1" ]]; then
+              echo "Runtime smoke failed for ${module}."
+              echo "--- ${module} logs ---"
+              tail -n 200 "${log_file}" || true
+              return 1
+            fi
+            echo "Runtime smoke passed for ${module}"
+          }
+
+          modules_csv="${MODULES:-}"
+          IFS=',' read -r -a changed_modules <<< "${modules_csv}"
+
+          has_runnable="0"
+          for module in "${changed_modules[@]}"; do
+            module_trimmed="$(echo "${module}" | xargs)"
+            case "${module_trimmed}" in
+              aiot-gateway)
+                has_runnable="1"
+                run_runtime_smoke "aiot-gateway" "8080" \
+                  "AIOT_JWT_SECRET=runtime-smoke-jwt-secret-12345678901234567890"
+                ;;
+              aiot-mqtt-adapter)
+                has_runnable="1"
+                run_runtime_smoke "aiot-mqtt-adapter" "8085" ""
+                ;;
+              aiot-data-parser)
+                has_runnable="1"
+                run_runtime_smoke "aiot-data-parser" "8086" ""
+                ;;
+              aiot-auth-service)
+                has_runnable="1"
+                start_infra_if_needed
+                run_runtime_smoke "aiot-auth-service" "8082" \
+                  "NACOS_ADDR=127.0.0.1:8848 MYSQL_HOST=127.0.0.1 MYSQL_USER=root MYSQL_PASSWORD=runtime-smoke-mysql-password-123456 REDIS_HOST=127.0.0.1 AIOT_INTERNAL_TOKEN=runtime-smoke-token-1234567890 AIOT_EMQX_WEBHOOK_SECRET=runtime-smoke-webhook-secret-1234567890"
+                ;;
+              aiot-device-service)
+                has_runnable="1"
+                start_infra_if_needed
+                run_runtime_smoke "aiot-device-service" "8081" \
+                  "NACOS_ADDR=127.0.0.1:8848 MYSQL_HOST=127.0.0.1 MYSQL_USER=root MYSQL_PASSWORD=runtime-smoke-mysql-password-123456 REDIS_HOST=127.0.0.1 EMQX_HOST=127.0.0.1 EMQX_API_USER=admin EMQX_API_PASSWORD=runtime-smoke-emqx-password-123456 AIOT_INTERNAL_TOKEN=runtime-smoke-token-1234567890 AIOT_JWT_SECRET=runtime-smoke-jwt-secret-12345678901234567890"
+                ;;
+              aiot-home-service)
+                has_runnable="1"
+                start_infra_if_needed
+                run_runtime_smoke "aiot-home-service" "8083" \
+                  "NACOS_ADDR=127.0.0.1:8848 MYSQL_HOST=127.0.0.1 MYSQL_PORT=3306 MYSQL_USER=root MYSQL_PWD=runtime-smoke-mysql-password-123456 REDIS_HOST=127.0.0.1 REDIS_PORT=6379 AIOT_INTERNAL_TOKEN=runtime-smoke-token-1234567890 AIOT_JWT_SECRET=runtime-smoke-jwt-secret-12345678901234567890"
+                ;;
+            esac
+          done
+
+          if [[ "${has_runnable}" == "0" ]]; then
+            echo "No runtime-smoke service changed, skip runtime smoke check."
+          fi
+
+  dependency-reachability-guard:
+    name: Dependency Reachability Guard
+    needs: detect-changes
+    if: needs.detect-changes.outputs.has_changes == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Validate compose includes required service dependencies
+        env:
+          MODULES: ${{ needs.detect-changes.outputs.maven_modules }}
+        run: |
+          python - <<'PY'
+          import os
+          import re
+          import sys
+          from pathlib import Path
+
+          modules = [m.strip() for m in os.getenv("MODULES", "").split(",") if m.strip()]
+          compose_text = Path("docker-compose.yml").read_text(encoding="utf-8")
+
+          required_service_refs = {
+              "aiot-device-service": ["aiot-home-service", "aiot-rule-engine"],
+              "aiot-auth-service": ["aiot-device-service"],
+              "aiot-home-service": ["aiot-device-service"],
+          }
+
+          missing = []
+          for module in modules:
+              required = required_service_refs.get(module, [])
+              for service in required:
+                  if f"{service}:" not in compose_text:
+                      missing.append(f"{module} requires `{service}` but docker-compose has no `{service}` service")
+
+          # validate base-url service host is resolvable in compose by service key
+          base_url_pattern = re.compile(r"base-url:\s*\$\{[^:}]+:http://([a-zA-Z0-9\\-]+):\\d+\\}")
+          for module in modules:
+              app = Path(module) / "src/main/resources/application.yml"
+              if not app.exists():
+                  continue
+              text = app.read_text(encoding="utf-8")
+              for host in base_url_pattern.findall(text):
+                  if host == "127.0.0.1" or host == "localhost":
+                      continue
+                  if f"{host}:" not in compose_text:
+                      missing.append(f"{module} base-url host `{host}` missing in docker-compose services")
+
+          if missing:
+              print("Dependency reachability guard failed:")
+              for item in missing:
+                  print(f" - {item}")
+              sys.exit(1)
+
+          print("Dependency reachability guard passed")
+          PY
 
   docker-build:
     name: Build and Push Docker Images
-    needs: build-and-test
+    needs: [detect-changes, build-and-test, communication-guard, observability-smoke, observability-runtime-smoke, dependency-reachability-guard]
     runs-on: ubuntu-latest
     # 仅在合并到主分支时推送镜像，如果是 PR 则只验证是否能成功构建
-    if: github.event_name == 'push' || github.event_name == 'pull_request'
+    if: needs.detect-changes.outputs.has_changes == 'true'
     strategy:
       matrix:
-        service: 
-          - aiot-gateway
-          - aiot-auth-service
-          - aiot-device-service
-          - aiot-shadow-service
-          - aiot-rule-engine
-          - aiot-mqtt-adapter
+        service: ${{ fromJson(needs.detect-changes.outputs.services) }}
     permissions:
       contents: read
       packages: write
@@ -102,16 +649,19 @@ jobs:
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha,scope=${{ matrix.service }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.service }}
+          provenance: false
           build-args: |
             JAR_FILE=${{ matrix.service }}/target/*.jar
             APP_NAME=${{ matrix.service }}.jar
 
   deploy:
     name: Deploy to Server
-    needs: docker-build
+    needs: [detect-changes, docker-build]
     runs-on: ubuntu-latest
     # 仅在 push 到主分支时触发部署
-    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
+    if: needs.detect-changes.outputs.has_changes == 'true' && github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -126,9 +676,9 @@ jobs:
           script: |
             # 假设服务器上的项目路径为 /opt/aiot-cloud
             cd /opt/aiot-cloud
-            # 拉取最新镜像
-            docker-compose pull
-            # 重启服务
-            docker-compose up -d --remove-orphans
+            # 仅拉取变更服务镜像
+            docker compose pull ${{ join(fromJson(needs.detect-changes.outputs.services), ' ') }}
+            # 仅重建变更服务，避免全量重启
+            docker compose up -d --remove-orphans --no-deps ${{ join(fromJson(needs.detect-changes.outputs.services), ' ') }}
             # 清理旧镜像
             docker image prune -f

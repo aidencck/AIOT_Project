@@ -4,6 +4,7 @@ public enum ResultCode {
     SUCCESS(200, "操作成功"),
     FAILED(500, "操作失败"),
     VALIDATE_FAILED(400, "参数检验失败"),
+    SHADOW_VERSION_CONFLICT(4091, "设备影子版本冲突"),
     UNAUTHORIZED(401, "暂未登录或token已经过期"),
     FORBIDDEN(403, "没有相关权限"),
     DEVICE_NOT_FOUND(4004, "设备不存在"),

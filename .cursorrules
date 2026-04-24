@@ -14,6 +14,7 @@ Always adhere to the following project-specific conventions and guidelines when 
 - **RESTful standard**: URLs must be lowercase, use hyphens for multiple words, use plural nouns, and include versions (e.g., `/api/v1/devices`).
 - **Slim Controllers**: Controllers should only handle routing and parameter validation. Business logic belongs in the Service layer.
 - **Global Response Wrapper**: Controllers MUST return raw business objects (e.g., `DeviceResp` or `String`). Do NOT wrap responses with `Result.success()` manually; rely on `GlobalResponseHandler` (`ResponseBodyAdvice`).
+  - **[Rule]**: When an operation is successful but has no data to return (e.g., a simple DELETE or UPDATE), return `Void` (and `return null;` in the method body) rather than returning a hardcoded String like "Success". This facilitates I18n and frontend handling.
 - **Exception Handling**: Do NOT use large `try-catch` blocks in Controllers. Throw `BusinessException(ResultCode.XXX)` in the Service layer and let `GlobalExceptionHandler` handle it.
 
 ## 3. Database & Cache Conventions
@@ -24,6 +25,7 @@ Always adhere to the following project-specific conventions and guidelines when 
 - **Redis**:
   - Keys MUST follow namespace isolation: `aiot:module:entity:id` (e.g., `aiot:device:status:DEV-123`).
   - All business cache keys MUST have a reasonable TTL to prevent memory leaks.
+  - **[Rule] Cache Consistency**: ALWAYS use the "Cache Aside Pattern". When a database write transaction commits, ONLY delete the cache key (`redis.delete(key)`). Do NOT synchronously rebuild the cache within the write transaction. Leave the rebuilding to the next read request (Lazy Loading).
 
 ## 4. Logging & Observability
 - Use `@Slf4j` for logging.
@@ -31,10 +33,47 @@ Always adhere to the following project-specific conventions and guidelines when 
 - `WARN`: For expected exceptions or non-blocking errors.
 - `ERROR`: For unexpected crashes. Always include the full Exception Stack Trace.
 - **MDC TraceId**: All logs in distributed environments must include `[%X{traceId}]`. Rely on the existing `logback-spring.xml`.
+  - **[Critical] Cross-Thread & Cross-Service TraceId**: When using `@Async`, `CompletableFuture`, or custom thread pools, you MUST use an `MDC` context decorator (e.g., `TaskDecorator`) to pass the `traceId` to the child thread. When calling other microservices via `FeignClient`, you MUST use a `RequestInterceptor` to pass the `X-Trace-Id` in the HTTP header.
 
-## 5. Code Style
+## 5. Spring Boot & Microservice Integration (Known Pitfalls)
+- **[Critical] Component Scanning**: When creating a new microservice (e.g., `aiot-auth-service`), the main application class MUST include `@ComponentScan(basePackages = {"com.aiot"})`. Otherwise, common components from `aiot-common` (like `GlobalExceptionHandler`, `TraceIdFilter`) will silently fail to load.
+- **[Critical] GlobalExceptionHandler HTTP Status**: The `GlobalExceptionHandler` MUST use `@ResponseStatus` or return a `ResponseEntity` with the appropriate HTTP status code (e.g., 500 for `Exception`, 400 for `MethodArgumentNotValidException`). Do NOT let the Servlet container return HTTP 200 OK for failed requests, as this breaks monitoring systems (e.g., Prometheus).
+- **[Critical] Exception Coverage**: Always ensure `GlobalExceptionHandler` explicitly handles Spring MVC exceptions like `HttpRequestMethodNotSupportedException` and `ConstraintViolationException`.
+- **[Rule] Declarative Security/RBAC**: ALWAYS prefer declarative approaches for cross-cutting concerns. Use AOP and custom annotations (e.g., `@RequireHomeRole`) for authorization checks instead of scattering hardcoded `if (role != x)` statements in Service classes.
+
+## 6. Code Style
 - Follow Alibaba Java Coding Guidelines.
 - Indentation: 4 spaces for Java/YAML, 2 spaces for JSON/JS. No Tabs.
 - Encoding: UTF-8. Line endings: LF.
+
+## 7. Requirement Alignment & Verification (Mandatory RDV Workflow)
+- **Step-by-Step Execution**: Before implementing any business logic for a new feature or Sprint, ask the user for the "Acceptance Criteria" (AC) or refer to the corresponding sprint doc in `docs/sprints/`. If it doesn't exist, create it using `docs/templates/SPRINT_REQUIREMENT_TEMPLATE.md`.
+- **Test-First Generation (TDD)**: 
+  1. Generate the test skeleton based on the AC using JUnit 5 and Mockito.
+  2. Ensure the test covers success, failure, and boundary edge cases (e.g., nulls, distributed concurrency).
+  3. Run the test (it should fail initially).
+  4. ONLY THEN, generate the implementation code in the Service/Controller.
+- **Traceability**: Add a comment at the top of the Service method: `// Implements [AC-ID]` to link the code back to the business requirement.
+- **Definition of Done**: A task is only "Done" when the generated code passes all unit tests and the Markdown-defined AC checklist in `docs/sprints/` is checked off.
+
+## 8. Security & Persistence Redlines (P0/P1 Guardrails)
+- **[Critical] Resource Ownership Verification**: For any DELETE/UPDATE endpoint that accepts both `resourceId` and `homeId` (or tenant scope), Service layer MUST verify `resource.homeId == request.homeId` before mutation. AOP/path/query checks alone are NOT sufficient.
+- **[Critical] Provisioning Authorization**: Any API that issues provisioning tokens/credentials MUST require user JWT and MUST verify membership/role against the target home/tenant before issuing tokens.
+- **[Critical] Protected Endpoint Policy**: New `/api/**` endpoints are authenticated by default. Only explicitly whitelisted endpoints can bypass JWT (e.g., device-side bootstrap exchange).
+- **[Critical] Password & Secret Policy**:
+  - Never store user passwords with MD5/SHA1. Use BCrypt/Argon2 only.
+  - Existing legacy hashes must be upgraded on successful login.
+  - JWT/AK/SK secrets MUST come from environment variables or secret manager, never hardcoded in YAML/Java.
+- **[Critical] Redis Serialization Safety**: Do NOT use `ObjectMapper.activateDefaultTyping(...)` with permissive validators (e.g., `LaissezFaireSubTypeValidator`). Prefer `GenericJackson2JsonRedisSerializer` or explicit DTO serializers.
+- **[Critical] Database Migration Governance**:
+  - No direct production schema edits.
+  - Any index/constraint/table change MUST be delivered via Flyway/Liquibase migration scripts.
+  - Every new paginated or high-frequency query MUST include index design review (where/filter/order-by aligned indexes).
+- **[Rule] Persistence Design Checklist for new CRUD**:
+  1) Define soft-delete behavior (`is_deleted`) and query filtering.
+  2) Define unique constraints for business keys (prevent duplicate dirty data).
+  3) Define hot-path indexes for read APIs.
+  4) Define rollback-safe migration scripts.
+  5) Add tests for unauthorized access, duplicate writes, and boundary pagination.
 
 When writing or modifying code in this workspace, strictly enforce these rules without explicitly repeating them to the user.

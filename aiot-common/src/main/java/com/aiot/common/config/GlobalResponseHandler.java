@@ -3,6 +3,7 @@ package com.aiot.common.config;
 import com.aiot.common.api.Result;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.core.annotation.AnnotatedElementUtils;
 import org.springframework.core.MethodParameter;
 import org.springframework.http.MediaType;
 import org.springframework.http.converter.HttpMessageConverter;
@@ -26,6 +27,15 @@ public class GlobalResponseHandler implements ResponseBodyAdvice<Object> {
     public Object beforeBodyWrite(Object body, MethodParameter returnType, MediaType selectedContentType,
                                   Class<? extends HttpMessageConverter<?>> selectedConverterType,
                                   ServerHttpRequest request, ServerHttpResponse response) {
+        // Keep third-party webhook/auth protocol payload unchanged.
+        String path = request.getURI().getPath();
+        if (path != null && path.startsWith("/api/v1/emqx")) {
+            return body;
+        }
+        if (AnnotatedElementUtils.hasAnnotation(returnType.getContainingClass(), SkipResponseWrap.class)
+                || returnType.hasMethodAnnotation(SkipResponseWrap.class)) {
+            return body;
+        }
         if (body instanceof String) {
             try {
                 return objectMapper.writeValueAsString(Result.success(body));
