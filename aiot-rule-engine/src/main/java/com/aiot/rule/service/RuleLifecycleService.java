@@ -7,28 +7,22 @@ import com.aiot.rule.dto.RuleApproveRequest;
 import com.aiot.rule.dto.RuleDraftRequest;
 import com.aiot.rule.dto.RuleDraftResponse;
 import com.aiot.rule.model.RuleDefinition;
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import com.aiot.rule.repository.RuleDefinitionRepository;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 import org.springframework.beans.factory.annotation.Value;
 
 import java.util.List;
-import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
-import java.util.stream.Collectors;
 
 @Slf4j
 @Service
 public class RuleLifecycleService {
 
-    private static final String RULE_STORE_KEY = "aiot:rule:definitions";
     private static final String RULE_EXEC_IDEMPOTENCY_KEY_PREFIX = "aiot:rule:exec:idempotency:";
-    private final RedisTemplate<String, Object> redisTemplate;
-    private final ObjectMapper objectMapper;
+    private final RuleDefinitionRepository ruleDefinitionRepository;
     private final RedisUtils redisUtils;
     private final RuleActionExecutor ruleActionExecutor;
     private final OpsClosureService opsClosureService;
@@ -36,13 +30,11 @@ public class RuleLifecycleService {
     @Value("${aiot.rule.execution.idempotency-ttl-seconds:600}")
     private long executionIdempotencyTtlSeconds;
 
-    public RuleLifecycleService(RedisTemplate<String, Object> redisTemplate,
-                                ObjectMapper objectMapper,
+    public RuleLifecycleService(RuleDefinitionRepository ruleDefinitionRepository,
                                 RedisUtils redisUtils,
                                 RuleActionExecutor ruleActionExecutor,
                                 OpsClosureService opsClosureService) {
-        this.redisTemplate = redisTemplate;
-        this.objectMapper = objectMapper;
+        this.ruleDefinitionRepository = ruleDefinitionRepository;
         this.redisUtils = redisUtils;
         this.ruleActionExecutor = ruleActionExecutor;
         this.opsClosureService = opsClosureService;
@@ -112,8 +104,7 @@ public class RuleLifecycleService {
     }
 
     private RuleDefinition getRule(String ruleId) {
-        Object payload = redisTemplate.opsForHash().get(RULE_STORE_KEY, ruleId);
-        RuleDefinition rule = fromJson(payload, ruleId);
+        RuleDefinition rule = ruleDefinitionRepository.findById(ruleId);
         if (rule == null) {
             throw new IllegalArgumentException("Rule not found: " + ruleId);
         }
@@ -121,35 +112,11 @@ public class RuleLifecycleService {
     }
 
     private void saveRule(RuleDefinition rule) {
-        redisTemplate.opsForHash().put(RULE_STORE_KEY, rule.getRuleId(), toJson(rule));
+        ruleDefinitionRepository.save(rule);
     }
 
     private List<RuleDefinition> loadAllRules() {
-        Map<Object, Object> entries = redisTemplate.opsForHash().entries(RULE_STORE_KEY);
-        return entries.entrySet().stream()
-                .map(entry -> fromJson(entry.getValue(), String.valueOf(entry.getKey())))
-                .filter(java.util.Objects::nonNull)
-                .collect(Collectors.toList());
-    }
-
-    private String toJson(RuleDefinition rule) {
-        try {
-            return objectMapper.writeValueAsString(rule);
-        } catch (JsonProcessingException e) {
-            throw new IllegalStateException("Failed to serialize rule: " + rule.getRuleId(), e);
-        }
-    }
-
-    private RuleDefinition fromJson(Object payload, String ruleId) {
-        if (!(payload instanceof String json) || !StringUtils.hasText(json)) {
-            return null;
-        }
-        try {
-            return objectMapper.readValue(json, RuleDefinition.class);
-        } catch (JsonProcessingException e) {
-            log.warn("Skip invalid rule payload, ruleId={}", ruleId, e);
-            return null;
-        }
+        return ruleDefinitionRepository.findAll();
     }
 
     private boolean tryAcquireExecution(RuleDefinition rule, DeviceEvent event) {

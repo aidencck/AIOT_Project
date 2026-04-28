@@ -6,6 +6,7 @@
 ## 阅读导航
 
 - 架构现状：[`current-architecture.md`](current-architecture.md)
+- 核心中间件：[`core-middlewares.md`](core-middlewares.md)
 - 能力矩阵：[`capability-matrix.md`](capability-matrix.md)
 - 系统优化路线：[`system-optimization-roadmap.md`](system-optimization-roadmap.md)
 - 环境与配置：[`environment-and-config.md`](environment-and-config.md)

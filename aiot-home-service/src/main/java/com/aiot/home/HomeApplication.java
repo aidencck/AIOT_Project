@@ -20,7 +20,7 @@ import org.springframework.context.annotation.ComponentScan;
 )
 @SpringBootApplication
 @ComponentScan(basePackages = {"com.aiot"}) // 【VibeCoding 强制卡点】确保加载 common 模块组件
-@MapperScan("com.aiot.home.mapper")
+@MapperScan("com.aiot.home.repository")
 public class HomeApplication {
     public static void main(String[] args) {
         SpringApplication.run(HomeApplication.class, args);

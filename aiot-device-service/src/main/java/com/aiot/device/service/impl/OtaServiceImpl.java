@@ -14,11 +14,11 @@ import com.aiot.device.entity.FirmwarePackage;
 import com.aiot.device.entity.OtaUpgradeRecord;
 import com.aiot.device.entity.OtaUpgradeTask;
 import com.aiot.device.entity.Product;
-import com.aiot.device.mapper.DeviceMapper;
-import com.aiot.device.mapper.FirmwarePackageMapper;
-import com.aiot.device.mapper.OtaUpgradeRecordMapper;
-import com.aiot.device.mapper.OtaUpgradeTaskMapper;
-import com.aiot.device.mapper.ProductMapper;
+import com.aiot.device.repository.DeviceRepository;
+import com.aiot.device.repository.FirmwarePackageRepository;
+import com.aiot.device.repository.OtaUpgradeRecordRepository;
+import com.aiot.device.repository.OtaUpgradeTaskRepository;
+import com.aiot.device.repository.ProductRepository;
 import com.aiot.device.service.OtaService;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.metadata.IPage;
@@ -36,22 +36,22 @@ import java.util.stream.Collectors;
 @Service
 public class OtaServiceImpl implements OtaService {
 
-    private final FirmwarePackageMapper firmwarePackageMapper;
-    private final OtaUpgradeTaskMapper otaUpgradeTaskMapper;
-    private final OtaUpgradeRecordMapper otaUpgradeRecordMapper;
-    private final DeviceMapper deviceMapper;
-    private final ProductMapper productMapper;
+    private final FirmwarePackageRepository firmwarePackageRepository;
+    private final OtaUpgradeTaskRepository otaUpgradeTaskRepository;
+    private final OtaUpgradeRecordRepository otaUpgradeRecordRepository;
+    private final DeviceRepository deviceRepository;
+    private final ProductRepository productRepository;
 
-    public OtaServiceImpl(FirmwarePackageMapper firmwarePackageMapper,
-                          OtaUpgradeTaskMapper otaUpgradeTaskMapper,
-                          OtaUpgradeRecordMapper otaUpgradeRecordMapper,
-                          DeviceMapper deviceMapper,
-                          ProductMapper productMapper) {
-        this.firmwarePackageMapper = firmwarePackageMapper;
-        this.otaUpgradeTaskMapper = otaUpgradeTaskMapper;
-        this.otaUpgradeRecordMapper = otaUpgradeRecordMapper;
-        this.deviceMapper = deviceMapper;
-        this.productMapper = productMapper;
+    public OtaServiceImpl(FirmwarePackageRepository firmwarePackageRepository,
+                          OtaUpgradeTaskRepository otaUpgradeTaskRepository,
+                          OtaUpgradeRecordRepository otaUpgradeRecordRepository,
+                          DeviceRepository deviceRepository,
+                          ProductRepository productRepository) {
+        this.firmwarePackageRepository = firmwarePackageRepository;
+        this.otaUpgradeTaskRepository = otaUpgradeTaskRepository;
+        this.otaUpgradeRecordRepository = otaUpgradeRecordRepository;
+        this.deviceRepository = deviceRepository;
+        this.productRepository = productRepository;
     }
 
     @Override
@@ -61,7 +61,7 @@ public class OtaServiceImpl implements OtaService {
         LambdaQueryWrapper<FirmwarePackage> existsWrapper = new LambdaQueryWrapper<>();
         existsWrapper.eq(FirmwarePackage::getProductKey, req.getProductKey())
                 .eq(FirmwarePackage::getVersion, req.getVersion());
-        if (firmwarePackageMapper.selectOne(existsWrapper) != null) {
+        if (firmwarePackageRepository.selectOne(existsWrapper) != null) {
             throw new BusinessException(ResultCode.VALIDATE_FAILED, "同产品版本固件包已存在");
         }
 
@@ -73,7 +73,7 @@ public class OtaServiceImpl implements OtaService {
         firmwarePackage.setChecksum(req.getChecksum());
         firmwarePackage.setReleaseNotes(req.getReleaseNotes());
         firmwarePackage.setStatus(1);
-        firmwarePackageMapper.insert(firmwarePackage);
+        firmwarePackageRepository.insert(firmwarePackage);
         return firmwarePackage.getPackageId();
     }
 
@@ -82,7 +82,7 @@ public class OtaServiceImpl implements OtaService {
         LambdaQueryWrapper<FirmwarePackage> wrapper = new LambdaQueryWrapper<>();
         wrapper.eq(StringUtils.hasText(productKey), FirmwarePackage::getProductKey, productKey)
                 .orderByDesc(FirmwarePackage::getCreateTime);
-        return firmwarePackageMapper.selectList(wrapper).stream().map(this::toFirmwareResp).collect(Collectors.toList());
+        return firmwarePackageRepository.selectList(wrapper).stream().map(this::toFirmwareResp).collect(Collectors.toList());
     }
 
     @Override
@@ -108,7 +108,7 @@ public class OtaServiceImpl implements OtaService {
         task.setTotalCount(devices.size());
         task.setSuccessCount(0);
         task.setFailedCount(0);
-        otaUpgradeTaskMapper.insert(task);
+        otaUpgradeTaskRepository.insert(task);
 
         for (Device device : devices) {
             OtaUpgradeRecord record = new OtaUpgradeRecord();
@@ -118,7 +118,7 @@ public class OtaServiceImpl implements OtaService {
             record.setFromVersion(device.getFirmwareVersion());
             record.setToVersion(firmwarePackage.getVersion());
             record.setStatus(1);
-            otaUpgradeRecordMapper.insert(record);
+            otaUpgradeRecordRepository.insert(record);
         }
         return task.getTaskId();
     }
@@ -134,7 +134,7 @@ public class OtaServiceImpl implements OtaService {
         LambdaQueryWrapper<OtaUpgradeTask> wrapper = new LambdaQueryWrapper<>();
         wrapper.eq(StringUtils.hasText(homeId), OtaUpgradeTask::getHomeId, homeId)
                 .orderByDesc(OtaUpgradeTask::getCreateTime);
-        return otaUpgradeTaskMapper.selectList(wrapper).stream()
+        return otaUpgradeTaskRepository.selectList(wrapper).stream()
                 .map(task -> toTaskResp(task, false))
                 .collect(Collectors.toList());
     }
@@ -151,7 +151,7 @@ public class OtaServiceImpl implements OtaService {
                 .eq(StringUtils.hasText(req.getProductKey()), OtaUpgradeTask::getProductKey, req.getProductKey())
                 .eq(req.getStatus() != null, OtaUpgradeTask::getStatus, req.getStatus())
                 .orderByDesc(OtaUpgradeTask::getCreateTime);
-        IPage<OtaUpgradeTask> taskPage = otaUpgradeTaskMapper.selectPage(page, wrapper);
+        IPage<OtaUpgradeTask> taskPage = otaUpgradeTaskRepository.selectPage(page, wrapper);
         return taskPage.convert(task -> toTaskResp(task, false));
     }
 
@@ -162,7 +162,7 @@ public class OtaServiceImpl implements OtaService {
         LambdaQueryWrapper<OtaUpgradeRecord> rw = new LambdaQueryWrapper<>();
         rw.eq(OtaUpgradeRecord::getTaskId, taskId)
                 .eq(OtaUpgradeRecord::getDeviceId, deviceId);
-        OtaUpgradeRecord record = otaUpgradeRecordMapper.selectOne(rw);
+        OtaUpgradeRecord record = otaUpgradeRecordRepository.selectOne(rw);
         if (record == null) {
             throw new BusinessException(ResultCode.VALIDATE_FAILED, "升级记录不存在");
         }
@@ -175,13 +175,13 @@ public class OtaServiceImpl implements OtaService {
         record.setStatus(req.getStatus());
         record.setErrorMessage(req.getErrorMessage());
         record.setReportTime(LocalDateTime.now());
-        otaUpgradeRecordMapper.updateById(record);
+        otaUpgradeRecordRepository.updateById(record);
 
         if (req.getStatus() != null && req.getStatus() == 2) {
-            Device device = deviceMapper.selectById(deviceId);
+            Device device = deviceRepository.selectById(deviceId);
             if (device != null) {
                 device.setFirmwareVersion(req.getToVersion());
-                deviceMapper.updateById(device);
+                deviceRepository.updateById(device);
             }
         }
         refreshTaskStatistics(task);
@@ -190,20 +190,20 @@ public class OtaServiceImpl implements OtaService {
     private void refreshTaskStatistics(OtaUpgradeTask task) {
         LambdaQueryWrapper<OtaUpgradeRecord> rw = new LambdaQueryWrapper<>();
         rw.eq(OtaUpgradeRecord::getTaskId, task.getTaskId());
-        List<OtaUpgradeRecord> records = otaUpgradeRecordMapper.selectList(rw);
+        List<OtaUpgradeRecord> records = otaUpgradeRecordRepository.selectList(rw);
         int success = (int) records.stream().filter(r -> r.getStatus() != null && r.getStatus() == 2).count();
         int failed = (int) records.stream().filter(r -> r.getStatus() != null && r.getStatus() == 3).count();
         int pending = (int) records.stream().filter(r -> r.getStatus() != null && r.getStatus() == 1).count();
         task.setSuccessCount(success);
         task.setFailedCount(failed);
         task.setStatus(pending == 0 ? 2 : 1);
-        otaUpgradeTaskMapper.updateById(task);
+        otaUpgradeTaskRepository.updateById(task);
     }
 
     private OtaUpgradeTask getTask(String taskId) {
         LambdaQueryWrapper<OtaUpgradeTask> wrapper = new LambdaQueryWrapper<>();
         wrapper.eq(OtaUpgradeTask::getTaskId, taskId);
-        OtaUpgradeTask task = otaUpgradeTaskMapper.selectOne(wrapper);
+        OtaUpgradeTask task = otaUpgradeTaskRepository.selectOne(wrapper);
         if (task == null) {
             throw new BusinessException(ResultCode.VALIDATE_FAILED, "升级任务不存在");
         }
@@ -227,7 +227,7 @@ public class OtaServiceImpl implements OtaService {
             LambdaQueryWrapper<OtaUpgradeRecord> rw = new LambdaQueryWrapper<>();
             rw.eq(OtaUpgradeRecord::getTaskId, task.getTaskId())
                     .orderByAsc(OtaUpgradeRecord::getCreateTime);
-            List<OtaUpgradeRecordResp> recordResps = otaUpgradeRecordMapper.selectList(rw).stream()
+            List<OtaUpgradeRecordResp> recordResps = otaUpgradeRecordRepository.selectList(rw).stream()
                     .map(this::toRecordResp)
                     .collect(Collectors.toList());
             resp.setRecords(recordResps);
@@ -264,7 +264,7 @@ public class OtaServiceImpl implements OtaService {
     private FirmwarePackage getFirmwarePackage(String packageId) {
         LambdaQueryWrapper<FirmwarePackage> wrapper = new LambdaQueryWrapper<>();
         wrapper.eq(FirmwarePackage::getPackageId, packageId);
-        FirmwarePackage firmwarePackage = firmwarePackageMapper.selectOne(wrapper);
+        FirmwarePackage firmwarePackage = firmwarePackageRepository.selectOne(wrapper);
         if (firmwarePackage == null) {
             throw new BusinessException(ResultCode.VALIDATE_FAILED, "固件包不存在");
         }
@@ -277,7 +277,7 @@ public class OtaServiceImpl implements OtaService {
         }
         List<Device> devices = new ArrayList<>();
         for (String deviceId : deviceIds) {
-            Device device = deviceMapper.selectById(deviceId);
+            Device device = deviceRepository.selectById(deviceId);
             if (device == null) {
                 throw new BusinessException(ResultCode.VALIDATE_FAILED, "设备不存在: " + deviceId);
             }
@@ -295,7 +295,7 @@ public class OtaServiceImpl implements OtaService {
     private void ensureProductExists(String productKey) {
         LambdaQueryWrapper<Product> wrapper = new LambdaQueryWrapper<>();
         wrapper.eq(Product::getProductKey, productKey);
-        if (productMapper.selectOne(wrapper) == null) {
+        if (productRepository.selectOne(wrapper) == null) {
             throw new BusinessException(ResultCode.PRODUCT_NOT_FOUND, "产品不存在");
         }
     }

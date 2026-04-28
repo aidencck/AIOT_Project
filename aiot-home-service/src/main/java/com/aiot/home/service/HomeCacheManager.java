@@ -2,7 +2,7 @@ package com.aiot.home.service;
 
 import com.aiot.common.config.RedisUtils;
 import com.aiot.home.entity.HomeMember;
-import com.aiot.home.mapper.HomeMemberMapper;
+import com.aiot.home.repository.HomeMemberRepository;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.redis.core.RedisTemplate;
@@ -26,7 +26,7 @@ public class HomeCacheManager {
     private RedisTemplate<String, Object> redisTemplate;
 
     @Autowired
-    private HomeMemberMapper homeMemberMapper;
+    private HomeMemberRepository homeMemberRepository;
 
     /**
      * 重新加载某个家庭的成员角色缓存
@@ -36,7 +36,7 @@ public class HomeCacheManager {
         
         LambdaQueryWrapper<HomeMember> wrapper = new LambdaQueryWrapper<>();
         wrapper.eq(HomeMember::getHomeId, homeId);
-        List<HomeMember> members = homeMemberMapper.selectList(wrapper);
+        List<HomeMember> members = homeMemberRepository.selectList(wrapper);
 
         // 删除旧缓存
         redisUtils.delete(key);

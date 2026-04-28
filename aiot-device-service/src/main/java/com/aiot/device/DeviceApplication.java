@@ -20,7 +20,7 @@ import org.springframework.scheduling.annotation.EnableScheduling;
 @EnableDiscoveryClient
 @EnableScheduling
 @ComponentScan(basePackages = {"com.aiot"})
-@MapperScan("com.aiot.device.mapper")
+@MapperScan("com.aiot.device.repository")
 public class DeviceApplication {
     public static void main(String[] args) {
         SpringApplication.run(DeviceApplication.class, args);

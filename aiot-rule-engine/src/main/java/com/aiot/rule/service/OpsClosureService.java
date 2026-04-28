@@ -7,11 +7,9 @@ import com.aiot.rule.model.AlarmRecord;
 import com.aiot.rule.model.AuditRecord;
 import com.aiot.rule.model.RuleDefinition;
 import com.aiot.rule.model.WorkOrderRecord;
-import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import lombok.extern.slf4j.Slf4j;
+import com.aiot.rule.repository.OpsRecordRepository;
 import org.slf4j.MDC;
-import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
@@ -24,19 +22,13 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
-@Slf4j
 @Service
 public class OpsClosureService {
-    private static final String ALARM_STORE_KEY = "aiot:ops:alarms";
-    private static final String WORK_ORDER_STORE_KEY = "aiot:ops:work-orders";
-    private static final String AUDIT_STORE_KEY = "aiot:ops:audits";
-    private static final String DEVICE_STATUS_KEY = "aiot:ops:device-status";
-
-    private final RedisTemplate<String, Object> redisTemplate;
+    private final OpsRecordRepository opsRecordRepository;
     private final ObjectMapper objectMapper;
 
-    public OpsClosureService(RedisTemplate<String, Object> redisTemplate, ObjectMapper objectMapper) {
-        this.redisTemplate = redisTemplate;
+    public OpsClosureService(OpsRecordRepository opsRecordRepository, ObjectMapper objectMapper) {
+        this.opsRecordRepository = opsRecordRepository;
         this.objectMapper = objectMapper;
     }
 
@@ -45,9 +37,9 @@ public class OpsClosureService {
             return;
         }
         if (event.getEventType() == DeviceEventType.DEVICE_ONLINE) {
-            redisTemplate.opsForHash().put(DEVICE_STATUS_KEY, event.getDeviceId(), "ONLINE");
+            opsRecordRepository.saveDeviceStatus(event.getDeviceId(), "ONLINE");
         } else if (event.getEventType() == DeviceEventType.DEVICE_OFFLINE) {
-            redisTemplate.opsForHash().put(DEVICE_STATUS_KEY, event.getDeviceId(), "OFFLINE");
+            opsRecordRepository.saveDeviceStatus(event.getDeviceId(), "OFFLINE");
         }
     }
 
@@ -91,9 +83,7 @@ public class OpsClosureService {
     }
 
     public List<AlarmRecord> listAlarms(String status, String deviceId) {
-        return redisTemplate.opsForHash().values(ALARM_STORE_KEY).stream()
-                .map(v -> fromJson(v, AlarmRecord.class))
-                .filter(java.util.Objects::nonNull)
+        return opsRecordRepository.findAllAlarms().stream()
                 .filter(a -> !StringUtils.hasText(status) || status.equalsIgnoreCase(a.getStatus()))
                 .filter(a -> !StringUtils.hasText(deviceId) || deviceId.equals(a.getDeviceId()))
                 .sorted(Comparator.comparing(AlarmRecord::getCreatedAt, Comparator.nullsLast(Long::compareTo)).reversed())
@@ -115,9 +105,7 @@ public class OpsClosureService {
     }
 
     public List<WorkOrderRecord> listWorkOrders(String status, String assignee) {
-        return redisTemplate.opsForHash().values(WORK_ORDER_STORE_KEY).stream()
-                .map(v -> fromJson(v, WorkOrderRecord.class))
-                .filter(java.util.Objects::nonNull)
+        return opsRecordRepository.findAllWorkOrders().stream()
                 .filter(w -> !StringUtils.hasText(status) || status.equalsIgnoreCase(w.getStatus()))
                 .filter(w -> !StringUtils.hasText(assignee) || assignee.equals(w.getAssignee()))
                 .sorted(Comparator.comparing(WorkOrderRecord::getCreatedAt, Comparator.nullsLast(Long::compareTo)).reversed())
@@ -158,7 +146,7 @@ public class OpsClosureService {
     }
 
     public DashboardOverviewResponse getOverview() {
-        Map<Object, Object> deviceStatusMap = redisTemplate.opsForHash().entries(DEVICE_STATUS_KEY);
+        Map<Object, Object> deviceStatusMap = opsRecordRepository.findAllDeviceStatuses();
         int online = 0;
         int offline = 0;
         for (Object value : deviceStatusMap.values()) {
@@ -217,30 +205,26 @@ public class OpsClosureService {
 
     public List<AuditRecord> listAudits(Integer limit) {
         int safeLimit = limit == null || limit <= 0 ? 50 : Math.min(limit, 200);
-        return redisTemplate.opsForHash().values(AUDIT_STORE_KEY).stream()
-                .map(v -> fromJson(v, AuditRecord.class))
-                .filter(java.util.Objects::nonNull)
+        return opsRecordRepository.findAllAudits().stream()
                 .sorted(Comparator.comparing(AuditRecord::getCreatedAt, Comparator.nullsLast(Long::compareTo)).reversed())
                 .limit(safeLimit)
                 .collect(Collectors.toList());
     }
 
     private void saveAlarm(AlarmRecord alarm) {
-        redisTemplate.opsForHash().put(ALARM_STORE_KEY, alarm.getAlarmId(), toJson(alarm));
+        opsRecordRepository.saveAlarm(alarm);
     }
 
     private AlarmRecord getAlarm(String alarmId) {
-        Object raw = redisTemplate.opsForHash().get(ALARM_STORE_KEY, alarmId);
-        return fromJson(raw, AlarmRecord.class);
+        return opsRecordRepository.findAlarmById(alarmId);
     }
 
     private void saveWorkOrder(WorkOrderRecord workOrder) {
-        redisTemplate.opsForHash().put(WORK_ORDER_STORE_KEY, workOrder.getWorkOrderId(), toJson(workOrder));
+        opsRecordRepository.saveWorkOrder(workOrder);
     }
 
     private WorkOrderRecord getWorkOrder(String workOrderId) {
-        Object raw = redisTemplate.opsForHash().get(WORK_ORDER_STORE_KEY, workOrderId);
-        return fromJson(raw, WorkOrderRecord.class);
+        return opsRecordRepository.findWorkOrderById(workOrderId);
     }
 
     private void appendAudit(String eventType, String operator, String targetId, String details) {
@@ -253,7 +237,7 @@ public class OpsClosureService {
                 .traceId(MDC.get("traceId"))
                 .createdAt(System.currentTimeMillis())
                 .build();
-        redisTemplate.opsForHash().put(AUDIT_STORE_KEY, audit.getAuditId(), toJson(audit));
+        opsRecordRepository.saveAudit(audit);
     }
 
     private boolean isSameDay(Long timestamp, LocalDate day) {
@@ -297,23 +281,4 @@ public class OpsClosureService {
         }
     }
 
-    private String toJson(Object value) {
-        try {
-            return objectMapper.writeValueAsString(value);
-        } catch (JsonProcessingException e) {
-            throw new IllegalStateException("序列化失败", e);
-        }
-    }
-
-    private <T> T fromJson(Object raw, Class<T> clazz) {
-        if (!(raw instanceof String json) || !StringUtils.hasText(json)) {
-            return null;
-        }
-        try {
-            return objectMapper.readValue(json, clazz);
-        } catch (Exception e) {
-            log.warn("反序列化失败, class={}", clazz.getSimpleName(), e);
-            return null;
-        }
-    }
 }

@@ -5,7 +5,7 @@ import com.aiot.home.dto.LoginReq;
 import com.aiot.home.dto.LoginResp;
 import com.aiot.home.dto.RegisterReq;
 import com.aiot.home.entity.User;
-import com.aiot.home.mapper.UserMapper;
+import com.aiot.home.repository.UserRepository;
 import com.aiot.home.utils.JwtUtils;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import org.junit.jupiter.api.Test;
@@ -31,7 +31,7 @@ import static org.mockito.Mockito.when;
 class UserServiceImplTest {
 
     @Mock
-    private UserMapper userMapper;
+    private UserRepository userRepository;
 
     @Mock
     private JwtUtils jwtUtils;
@@ -51,7 +51,7 @@ class UserServiceImplTest {
         user.setNickname("alice");
         user.setPassword(DigestUtils.md5DigestAsHex(req.getPassword().getBytes(StandardCharsets.UTF_8)));
 
-        when(userMapper.selectOne(any(LambdaQueryWrapper.class))).thenReturn(user);
+        when(userRepository.selectOne(any(LambdaQueryWrapper.class))).thenReturn(user);
         when(jwtUtils.generateToken("u-1", req.getPhone())).thenReturn("mock-token");
 
         LoginResp resp = userService.login(req);
@@ -61,7 +61,7 @@ class UserServiceImplTest {
         assertEquals("alice", resp.getNickname());
 
         ArgumentCaptor<User> captor = ArgumentCaptor.forClass(User.class);
-        verify(userMapper).updateById(captor.capture());
+        verify(userRepository).updateById(captor.capture());
         assertNotNull(captor.getValue().getPassword());
         assertTrue(captor.getValue().getPassword().startsWith("$2"));
     }
@@ -77,10 +77,10 @@ class UserServiceImplTest {
         user.setPhone(req.getPhone());
         user.setPassword("$2a$10$0OcYqLaXx3Di8Q2REwW65eR0r4Vjzi10BGSAdoo6gWQBaIjXImQxG");
 
-        when(userMapper.selectOne(any(LambdaQueryWrapper.class))).thenReturn(user);
+        when(userRepository.selectOne(any(LambdaQueryWrapper.class))).thenReturn(user);
 
         assertThrows(BusinessException.class, () -> userService.login(req));
-        verify(userMapper, never()).updateById(any(User.class));
+        verify(userRepository, never()).updateById(any(User.class));
     }
 
     @Test
@@ -90,10 +90,10 @@ class UserServiceImplTest {
         req.setPassword("123456");
         req.setNickname("bob");
 
-        when(userMapper.selectCount(any(LambdaQueryWrapper.class))).thenReturn(1L);
+        when(userRepository.selectCount(any(LambdaQueryWrapper.class))).thenReturn(1L);
 
         assertThrows(BusinessException.class, () -> userService.register(req));
-        verify(userMapper, never()).insert(any(User.class));
+        verify(userRepository, never()).insert(any(User.class));
     }
 
     @Test
@@ -103,12 +103,12 @@ class UserServiceImplTest {
         req.setPassword("123456");
         req.setNickname("bob");
 
-        when(userMapper.selectCount(any(LambdaQueryWrapper.class))).thenReturn(0L);
+        when(userRepository.selectCount(any(LambdaQueryWrapper.class))).thenReturn(0L);
 
         userService.register(req);
 
         ArgumentCaptor<User> captor = ArgumentCaptor.forClass(User.class);
-        verify(userMapper).insert(captor.capture());
+        verify(userRepository).insert(captor.capture());
         User inserted = captor.getValue();
         assertEquals(req.getPhone(), inserted.getPhone());
         assertEquals(req.getNickname(), inserted.getNickname());

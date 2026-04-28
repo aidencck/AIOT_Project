@@ -6,7 +6,7 @@ import com.aiot.home.dto.LoginReq;
 import com.aiot.home.dto.LoginResp;
 import com.aiot.home.dto.RegisterReq;
 import com.aiot.home.entity.User;
-import com.aiot.home.mapper.UserMapper;
+import com.aiot.home.repository.UserRepository;
 import com.aiot.home.service.UserService;
 import com.aiot.home.utils.JwtUtils;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
@@ -23,7 +23,7 @@ public class UserServiceImpl implements UserService {
     private static final BCryptPasswordEncoder PASSWORD_ENCODER = new BCryptPasswordEncoder();
 
     @Autowired
-    private UserMapper userMapper;
+    private UserRepository userRepository;
 
     @Autowired
     private JwtUtils jwtUtils;
@@ -33,7 +33,7 @@ public class UserServiceImpl implements UserService {
         // 查找用户
         LambdaQueryWrapper<User> wrapper = new LambdaQueryWrapper<>();
         wrapper.eq(User::getPhone, req.getPhone());
-        User user = userMapper.selectOne(wrapper);
+        User user = userRepository.selectOne(wrapper);
 
         if (user == null) {
             throw new BusinessException(ResultCode.VALIDATE_FAILED, "用户不存在");
@@ -49,7 +49,7 @@ public class UserServiceImpl implements UserService {
             passwordMatched = md5Password.equals(user.getPassword());
             if (passwordMatched) {
                 user.setPassword(PASSWORD_ENCODER.encode(rawPassword));
-                userMapper.updateById(user);
+                userRepository.updateById(user);
             }
         }
 
@@ -72,7 +72,7 @@ public class UserServiceImpl implements UserService {
         // 检查手机号是否已注册
         LambdaQueryWrapper<User> wrapper = new LambdaQueryWrapper<>();
         wrapper.eq(User::getPhone, req.getPhone());
-        if (userMapper.selectCount(wrapper) > 0) {
+        if (userRepository.selectCount(wrapper) > 0) {
             throw new BusinessException(ResultCode.VALIDATE_FAILED, "手机号已被注册");
         }
 
@@ -81,6 +81,6 @@ public class UserServiceImpl implements UserService {
         user.setNickname(req.getNickname());
         user.setPassword(PASSWORD_ENCODER.encode(req.getPassword()));
 
-        userMapper.insert(user);
+        userRepository.insert(user);
     }
 }

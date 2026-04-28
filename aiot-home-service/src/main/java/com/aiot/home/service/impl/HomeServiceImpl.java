@@ -10,9 +10,9 @@ import com.aiot.home.dto.HomeResp;
 import com.aiot.home.entity.Home;
 import com.aiot.home.entity.HomeMember;
 import com.aiot.home.entity.User;
-import com.aiot.home.mapper.HomeMapper;
-import com.aiot.home.mapper.HomeMemberMapper;
-import com.aiot.home.mapper.UserMapper;
+import com.aiot.home.repository.HomeMemberRepository;
+import com.aiot.home.repository.HomeRepository;
+import com.aiot.home.repository.UserRepository;
 import com.aiot.home.service.HomeCacheManager;
 import com.aiot.home.service.HomeDeviceCompensationService;
 import com.aiot.home.service.HomeService;
@@ -30,13 +30,13 @@ import java.util.stream.Collectors;
 public class HomeServiceImpl implements HomeService {
 
     @Autowired
-    private HomeMapper homeMapper;
+    private HomeRepository homeRepository;
 
     @Autowired
-    private HomeMemberMapper homeMemberMapper;
+    private HomeMemberRepository homeMemberRepository;
 
     @Autowired
-    private UserMapper userMapper;
+    private UserRepository userRepository;
 
     @Autowired
     private HomeCacheManager homeCacheManager;
@@ -51,14 +51,14 @@ public class HomeServiceImpl implements HomeService {
         Home home = new Home();
         home.setName(req.getName());
         home.setLocation(req.getLocation());
-        homeMapper.insert(home);
+        homeRepository.insert(home);
 
         // 2. 将当前用户设为家庭所有者 (Role: 1-Owner)
         HomeMember member = new HomeMember();
         member.setHomeId(home.getId());
         member.setUserId(userId);
         member.setRole(1); 
-        homeMemberMapper.insert(member);
+        homeMemberRepository.insert(member);
 
         // 3. 刷新缓存
         homeCacheManager.updateUserRoleCache(home.getId(), userId, 1);
@@ -71,7 +71,7 @@ public class HomeServiceImpl implements HomeService {
         // 查询当前用户参与的所有家庭记录
         LambdaQueryWrapper<HomeMember> memberWrapper = new LambdaQueryWrapper<>();
         memberWrapper.eq(HomeMember::getUserId, userId);
-        List<HomeMember> members = homeMemberMapper.selectList(memberWrapper);
+        List<HomeMember> members = homeMemberRepository.selectList(memberWrapper);
 
         if (members.isEmpty()) {
             return List.of();
@@ -83,7 +83,7 @@ public class HomeServiceImpl implements HomeService {
                 .collect(Collectors.toMap(HomeMember::getHomeId, HomeMember::getRole));
 
         // 批量查询家庭信息
-        List<Home> homes = homeMapper.selectBatchIds(homeIds);
+        List<Home> homes = homeRepository.selectBatchIds(homeIds);
 
         // 组装返回对象
         return homes.stream().map(home -> {
@@ -104,12 +104,12 @@ public class HomeServiceImpl implements HomeService {
         homeDeviceCompensationService.unbindDevicesByHomeId(homeId);
 
         // 删除家庭本身
-        homeMapper.deleteById(homeId);
+        homeRepository.deleteById(homeId);
 
         // 删除家庭的所有成员关联
         LambdaQueryWrapper<HomeMember> deleteAllMembers = new LambdaQueryWrapper<>();
         deleteAllMembers.eq(HomeMember::getHomeId, homeId);
-        homeMemberMapper.delete(deleteAllMembers);
+        homeMemberRepository.delete(deleteAllMembers);
 
         // 移除缓存 (Cache Aside: 失效模式)
         homeCacheManager.removeHomeMembersCache(homeId);
@@ -120,13 +120,13 @@ public class HomeServiceImpl implements HomeService {
     public List<HomeMemberResp> listHomeMembers(String homeId) {
         LambdaQueryWrapper<HomeMember> wrapper = new LambdaQueryWrapper<>();
         wrapper.eq(HomeMember::getHomeId, homeId).orderByAsc(HomeMember::getRole, HomeMember::getCreateTime);
-        List<HomeMember> members = homeMemberMapper.selectList(wrapper);
+        List<HomeMember> members = homeMemberRepository.selectList(wrapper);
         if (members.isEmpty()) {
             return List.of();
         }
 
         List<String> userIds = members.stream().map(HomeMember::getUserId).distinct().collect(Collectors.toList());
-        List<User> users = userMapper.selectBatchIds(userIds);
+        List<User> users = userRepository.selectBatchIds(userIds);
         Map<String, User> userMap = users.stream().collect(Collectors.toMap(User::getId, u -> u));
 
         return members.stream().map(m -> {
@@ -145,11 +145,11 @@ public class HomeServiceImpl implements HomeService {
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void addHomeMember(String homeId, HomeMemberAddReq req, String operatorUserId) {
-        Home home = homeMapper.selectById(homeId);
+        Home home = homeRepository.selectById(homeId);
         if (home == null) {
             throw new BusinessException(ResultCode.VALIDATE_FAILED, "家庭不存在");
         }
-        User targetUser = userMapper.selectById(req.getUserId());
+        User targetUser = userRepository.selectById(req.getUserId());
         if (targetUser == null) {
             throw new BusinessException(ResultCode.VALIDATE_FAILED, "目标用户不存在");
         }
@@ -171,7 +171,7 @@ public class HomeServiceImpl implements HomeService {
         member.setHomeId(homeId);
         member.setUserId(req.getUserId());
         member.setRole(req.getRole());
-        homeMemberMapper.insert(member);
+        homeMemberRepository.insert(member);
         homeCacheManager.updateUserRoleCache(homeId, req.getUserId(), req.getRole());
     }
 
@@ -192,7 +192,7 @@ public class HomeServiceImpl implements HomeService {
         }
 
         targetMember.setRole(req.getRole());
-        homeMemberMapper.updateById(targetMember);
+        homeMemberRepository.updateById(targetMember);
         homeCacheManager.updateUserRoleCache(homeId, targetUserId, req.getRole());
     }
 
@@ -215,13 +215,13 @@ public class HomeServiceImpl implements HomeService {
             throw new BusinessException(ResultCode.FORBIDDEN, "不能移除 Owner");
         }
 
-        homeMemberMapper.deleteById(targetMember.getId());
+        homeMemberRepository.deleteById(targetMember.getId());
         homeCacheManager.removeUserRoleCache(homeId, targetUserId);
     }
 
     private HomeMember getHomeMember(String homeId, String userId) {
         LambdaQueryWrapper<HomeMember> wrapper = new LambdaQueryWrapper<>();
         wrapper.eq(HomeMember::getHomeId, homeId).eq(HomeMember::getUserId, userId);
-        return homeMemberMapper.selectOne(wrapper);
+        return homeMemberRepository.selectOne(wrapper);
     }
 }

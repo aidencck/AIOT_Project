@@ -5,7 +5,7 @@ import com.aiot.common.exception.BusinessException;
 import com.aiot.device.dto.ProductReq;
 import com.aiot.device.dto.ProductResp;
 import com.aiot.device.entity.Product;
-import com.aiot.device.mapper.ProductMapper;
+import com.aiot.device.repository.ProductRepository;
 import com.aiot.device.service.ProductService;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -20,7 +20,7 @@ import java.util.stream.Collectors;
 public class ProductServiceImpl implements ProductService {
 
     @Autowired
-    private ProductMapper productMapper;
+    private ProductRepository productRepository;
 
     @Override
     public String createProduct(ProductReq req) {
@@ -39,7 +39,7 @@ public class ProductServiceImpl implements ProductService {
         String productKey = "PK_" + UUID.randomUUID().toString().substring(0, 8).toUpperCase();
         product.setProductKey(productKey);
 
-        productMapper.insert(product);
+        productRepository.insert(product);
         return productKey;
     }
 
@@ -47,7 +47,7 @@ public class ProductServiceImpl implements ProductService {
     public ProductResp getProductByKey(String productKey) {
         LambdaQueryWrapper<Product> wrapper = new LambdaQueryWrapper<>();
         wrapper.eq(Product::getProductKey, productKey);
-        Product product = productMapper.selectOne(wrapper);
+        Product product = productRepository.selectOne(wrapper);
         
         if (product == null) {
             throw new BusinessException(ResultCode.VALIDATE_FAILED, "产品不存在");
@@ -58,7 +58,7 @@ public class ProductServiceImpl implements ProductService {
 
     @Override
     public List<ProductResp> listProducts() {
-        List<Product> products = productMapper.selectList(null);
+        List<Product> products = productRepository.selectList(null);
         return products.stream().map(this::convertToResp).collect(Collectors.toList());
     }
 
@@ -66,14 +66,14 @@ public class ProductServiceImpl implements ProductService {
     public void updateThingModel(String productKey, String thingModelJson) {
         LambdaQueryWrapper<Product> wrapper = new LambdaQueryWrapper<>();
         wrapper.eq(Product::getProductKey, productKey);
-        Product product = productMapper.selectOne(wrapper);
+        Product product = productRepository.selectOne(wrapper);
         
         if (product == null) {
             throw new BusinessException(ResultCode.VALIDATE_FAILED, "产品不存在");
         }
         
         product.setThingModelJson(thingModelJson);
-        productMapper.updateById(product);
+        productRepository.updateById(product);
     }
 
     private ProductResp convertToResp(Product product) {

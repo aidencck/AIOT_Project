@@ -3,7 +3,7 @@ package com.aiot.auth.service.impl;
 import com.aiot.auth.dto.EmqxAuthReq;
 import com.aiot.auth.dto.EmqxWebhookReq;
 import com.aiot.auth.entity.DeviceCredential;
-import com.aiot.auth.mapper.DeviceCredentialMapper;
+import com.aiot.auth.repository.DeviceCredentialRepository;
 import com.aiot.auth.service.AuthService;
 import com.aiot.auth.utils.SignUtils;
 import com.aiot.common.config.RedisUtils;
@@ -30,7 +30,7 @@ public class AuthServiceImpl implements AuthService {
     private static final String WEBHOOK_REPLAY_KEY_PREFIX = "aiot:auth:webhook:replay:";
 
     @Autowired
-    private DeviceCredentialMapper credentialMapper;
+    private DeviceCredentialRepository credentialRepository;
     
     @Autowired
     private RedisUtils redisUtils;
@@ -55,7 +55,7 @@ public class AuthServiceImpl implements AuthService {
         log.info("Authenticating device: {}", deviceId);
 
         // 1. Fetch Secret from DB
-        DeviceCredential credential = credentialMapper.selectOne(
+        DeviceCredential credential = credentialRepository.selectOne(
                 new LambdaQueryWrapper<DeviceCredential>().eq(DeviceCredential::getDeviceId, deviceId)
         );
         

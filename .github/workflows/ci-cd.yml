@@ -126,6 +126,9 @@ jobs:
           distribution: 'temurin'
           cache: maven
 
+      - name: Enforce layering boundaries
+        run: bash scripts/check_layering.sh
+
       - name: Dependency vulnerability scan with Trivy
         uses: aquasecurity/trivy-action@0.24.0
         with:

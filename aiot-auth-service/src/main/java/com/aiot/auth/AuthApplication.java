@@ -18,7 +18,7 @@ import org.springframework.context.annotation.ComponentScan;
 @SpringBootApplication
 @EnableDiscoveryClient
 @ComponentScan(basePackages = {"com.aiot"})
-@MapperScan("com.aiot.auth.mapper")
+@MapperScan("com.aiot.auth.repository")
 public class AuthApplication {
     public static void main(String[] args) {
         SpringApplication.run(AuthApplication.class, args);
