@@ -1,32 +1,22 @@
 version: '3.8'
 
-# ==========================================
-# 网络配置
-# ==========================================
 networks:
   aiot-net:
     driver: bridge
     name: aiot-net
 
-# ==========================================
-# 存储卷配置
-# ==========================================
 volumes:
   mysql-data:
   redis-data:
-  nacos-data:
   emqx-data:
 
 services:
-  # ==========================================
-  # 第一部分：基础中间件 (Infrastructure)
-  # ==========================================
   mysql:
     image: mysql:8.0
     container_name: aiot-mysql
     restart: unless-stopped
     environment:
-      MYSQL_ROOT_PASSWORD: ${MYSQL_PASSWORD:-root}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_PASSWORD}
       MYSQL_DATABASE: aiot_cloud
       TZ: Asia/Shanghai
     ports:
@@ -36,24 +26,11 @@ services:
     networks:
       - aiot-net
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-proot"]
+      test: ["CMD-SHELL", "mysqladmin ping -h localhost -uroot -p$${MYSQL_ROOT_PASSWORD}"]
       interval: 15s
       timeout: 5s
       retries: 5
       start_period: 30s
-    deploy:
-      resources:
-        limits:
-          cpus: '1.0'
-          memory: 1G
-        reservations:
-          cpus: '0.2'
-          memory: 512M
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "100m"
-        max-file: "3"
 
   redis:
     image: redis:7.0-alpine
@@ -70,22 +47,9 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
-    deploy:
-      resources:
-        limits:
-          cpus: '0.5'
-          memory: 512M
-        reservations:
-          cpus: '0.1'
-          memory: 256M
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "100m"
-        max-file: "3"
 
   nacos:
-    image: nacos/nacos-server:v2.2.3
+    image: nacos/nacos-server:v2.3.2
     platform: linux/amd64
     container_name: aiot-nacos
     restart: unless-stopped
@@ -96,8 +60,6 @@ services:
     ports:
       - "8848:8848"
       - "9848:9848"
-    volumes:
-      - nacos-data:/home/nacos/data
     networks:
       - aiot-net
     healthcheck:
@@ -106,28 +68,15 @@ services:
       timeout: 5s
       retries: 5
       start_period: 40s
-    deploy:
-      resources:
-        limits:
-          cpus: '1.0'
-          memory: 1G
-        reservations:
-          cpus: '0.2'
-          memory: 512M
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "100m"
-        max-file: "3"
 
   emqx:
     image: emqx:5.3.0
     container_name: aiot-emqx
     restart: unless-stopped
     ports:
-      - "1883:1883"   # MQTT TCP
-      - "8083:8083"   # MQTT WebSocket
-      - "18083:18083" # EMQX Dashboard
+      - "1883:1883"
+      - "8083:8083"
+      - "18083:18083"
     volumes:
       - emqx-data:/opt/emqx/data
     networks:
@@ -138,26 +87,9 @@ services:
       timeout: 5s
       retries: 5
       start_period: 30s
-    deploy:
-      resources:
-        limits:
-          cpus: '1.0'
-          memory: 1G
-        reservations:
-          cpus: '0.2'
-          memory: 512M
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "100m"
-        max-file: "3"
 
-  # ==========================================
-  # 第二部分：AIoT 微服务 (Microservices)
-  # 统一拉取 GHCR 镜像，不再使用本地构建
-  # ==========================================
   aiot-gateway:
-    image: ghcr.io/aidencck/aiot-java/aiot-gateway:main
+    image: ghcr.io/aidencck/aiot-java/aiot-gateway:${IMAGE_TAG:-main}
     container_name: aiot-gateway
     restart: unless-stopped
     ports:
@@ -167,46 +99,161 @@ services:
       - SERVER_PORT=8080
       - JAVA_OPTS=-Xms256m -Xmx256m
       - NACOS_ADDR=${NACOS_ADDR:-aiot-nacos:8848}
+      - AIOT_JWT_SECRET=${AIOT_JWT_SECRET}
     depends_on:
       nacos:
         condition: service_healthy
     networks:
       - aiot-net
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8080/actuator/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:8080/actuator/health/readiness"]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 40s
-    deploy:
-      resources:
-        limits:
-          cpus: '1.0'
-          memory: 512M
-        reservations:
-          cpus: '0.1'
-          memory: 256M
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "100m"
-        max-file: "3"
+
+  aiot-home-service:
+    image: ghcr.io/aidencck/aiot-java/aiot-home-service:${IMAGE_TAG:-main}
+    container_name: aiot-home-service
+    restart: unless-stopped
+    environment:
+      - TZ=Asia/Shanghai
+      - SERVER_PORT=8083
+      - JAVA_OPTS=-Xms256m -Xmx256m
+      - MYSQL_HOST=aiot-mysql
+      - MYSQL_PORT=3306
+      - MYSQL_DB=aiot_home
+      - MYSQL_USER=root
+      - MYSQL_PWD=${MYSQL_PASSWORD}
+      - REDIS_HOST=aiot-redis
+      - REDIS_PORT=6379
+      - AIOT_INTERNAL_TOKEN=${AIOT_INTERNAL_TOKEN}
+      - AIOT_JWT_SECRET=${AIOT_JWT_SECRET}
+      - AIOT_DEVICE_SERVICE_URL=http://aiot-device-service:8081
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - aiot-net
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8083/actuator/health/readiness"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  aiot-rule-engine:
+    image: ghcr.io/aidencck/aiot-java/aiot-rule-engine:${IMAGE_TAG:-main}
+    container_name: aiot-rule-engine
+    restart: unless-stopped
+    environment:
+      - TZ=Asia/Shanghai
+      - SERVER_PORT=8084
+      - JAVA_OPTS=-Xms256m -Xmx256m
+      - NACOS_ADDR=${NACOS_ADDR:-aiot-nacos:8848}
+      - REDIS_HOST=aiot-redis
+    depends_on:
+      nacos:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - aiot-net
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8084/actuator/health/readiness"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  aiot-shadow-service:
+    image: ghcr.io/aidencck/aiot-java/aiot-shadow-service:${IMAGE_TAG:-main}
+    container_name: aiot-shadow-service
+    restart: unless-stopped
+    environment:
+      - TZ=Asia/Shanghai
+      - SERVER_PORT=8087
+      - JAVA_OPTS=-Xms256m -Xmx256m
+      - NACOS_ADDR=${NACOS_ADDR:-aiot-nacos:8848}
+      - REDIS_HOST=aiot-redis
+    depends_on:
+      nacos:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - aiot-net
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8087/actuator/health/readiness"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  aiot-mqtt-adapter:
+    image: ghcr.io/aidencck/aiot-java/aiot-mqtt-adapter:${IMAGE_TAG:-main}
+    container_name: aiot-mqtt-adapter
+    restart: unless-stopped
+    environment:
+      - TZ=Asia/Shanghai
+      - SERVER_PORT=8085
+      - JAVA_OPTS=-Xms256m -Xmx256m
+      - NACOS_ADDR=${NACOS_ADDR:-aiot-nacos:8848}
+    depends_on:
+      nacos:
+        condition: service_healthy
+    networks:
+      - aiot-net
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8085/actuator/health/readiness"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  aiot-data-parser:
+    image: ghcr.io/aidencck/aiot-java/aiot-data-parser:${IMAGE_TAG:-main}
+    container_name: aiot-data-parser
+    restart: unless-stopped
+    environment:
+      - TZ=Asia/Shanghai
+      - SERVER_PORT=8086
+      - JAVA_OPTS=-Xms256m -Xmx256m
+      - NACOS_ADDR=${NACOS_ADDR:-aiot-nacos:8848}
+    depends_on:
+      nacos:
+        condition: service_healthy
+    networks:
+      - aiot-net
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8086/actuator/health/readiness"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
 
   aiot-device-service:
-    image: ghcr.io/aidencck/aiot-java/aiot-device-service:main
+    image: ghcr.io/aidencck/aiot-java/aiot-device-service:${IMAGE_TAG:-main}
     container_name: aiot-device-service
     restart: unless-stopped
-    ports:
-      - "8081:8081"
     environment:
       - TZ=Asia/Shanghai
       - SERVER_PORT=8081
       - JAVA_OPTS=-Xms256m -Xmx256m
       - NACOS_ADDR=${NACOS_ADDR:-aiot-nacos:8848}
-      - MYSQL_HOST=${MYSQL_HOST:-aiot-mysql:3306}
-      - MYSQL_PASSWORD=${MYSQL_PASSWORD:-root}
-      - REDIS_HOST=${REDIS_HOST:-aiot-redis}
-      - EMQX_HOST=${EMQX_HOST:-aiot-emqx}
+      - MYSQL_HOST=aiot-mysql
+      - MYSQL_USER=root
+      - MYSQL_PASSWORD=${MYSQL_PASSWORD}
+      - REDIS_HOST=aiot-redis
+      - EMQX_HOST=aiot-emqx
+      - EMQX_API_USER=${EMQX_API_USER}
+      - EMQX_API_PASSWORD=${EMQX_API_PASSWORD}
+      - AIOT_HOME_SERVICE_URL=http://aiot-home-service:8083
+      - AIOT_RULE_SERVICE_URL=http://aiot-rule-engine:8084
+      - AIOT_INTERNAL_TOKEN=${AIOT_INTERNAL_TOKEN}
+      - AIOT_JWT_SECRET=${AIOT_JWT_SECRET}
     depends_on:
       nacos:
         condition: service_healthy
@@ -214,42 +261,35 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      aiot-home-service:
+        condition: service_healthy
+      aiot-rule-engine:
+        condition: service_healthy
     networks:
       - aiot-net
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8081/actuator/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:8081/actuator/health/readiness"]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 40s
-    deploy:
-      resources:
-        limits:
-          cpus: '1.0'
-          memory: 512M
-        reservations:
-          cpus: '0.1'
-          memory: 256M
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "100m"
-        max-file: "3"
 
   aiot-auth-service:
-    image: ghcr.io/aidencck/aiot-java/aiot-auth-service:main
+    image: ghcr.io/aidencck/aiot-java/aiot-auth-service:${IMAGE_TAG:-main}
     container_name: aiot-auth-service
     restart: unless-stopped
-    ports:
-      - "8082:8082"
     environment:
       - TZ=Asia/Shanghai
       - SERVER_PORT=8082
       - JAVA_OPTS=-Xms256m -Xmx256m
       - NACOS_ADDR=${NACOS_ADDR:-aiot-nacos:8848}
-      - MYSQL_HOST=${MYSQL_HOST:-aiot-mysql:3306}
-      - MYSQL_PASSWORD=${MYSQL_PASSWORD:-root}
-      - REDIS_HOST=${REDIS_HOST:-aiot-redis}
+      - MYSQL_HOST=aiot-mysql
+      - MYSQL_USER=root
+      - MYSQL_PASSWORD=${MYSQL_PASSWORD}
+      - REDIS_HOST=aiot-redis
+      - AIOT_DEVICE_SERVICE_URL=http://aiot-device-service:8081
+      - AIOT_INTERNAL_TOKEN=${AIOT_INTERNAL_TOKEN}
+      - AIOT_EMQX_WEBHOOK_SECRET=${AIOT_EMQX_WEBHOOK_SECRET}
     depends_on:
       nacos:
         condition: service_healthy
@@ -257,19 +297,13 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      aiot-device-service:
+        condition: service_healthy
     networks:
       - aiot-net
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8082/actuator/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:8082/actuator/health/readiness"]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 40s
-    deploy:
-      resources:
-        limits:
-          cpus: '1.0'
-          memory: 512M
-        reservations:
-          cpus: '0.1'
-          memory: 256M

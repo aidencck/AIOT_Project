@@ -10,9 +10,9 @@ spring:
         server-addr: ${NACOS_ADDR:127.0.0.1:8848}
   datasource:
     driver-class-name: com.mysql.cj.jdbc.Driver
-    url: jdbc:mysql://${MYSQL_HOST:127.0.0.1:3306}/aiot_cloud?useUnicode=true&characterEncoding=utf-8&serverTimezone=Asia/Shanghai&useSSL=false
-    username: ${MYSQL_USER:root}
-    password: ${MYSQL_PASSWORD:root}
+    url: jdbc:mysql://${MYSQL_HOST:127.0.0.1:3306}/aiot_cloud?useUnicode=true&characterEncoding=utf-8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
+    username: ${MYSQL_USER}
+    password: ${MYSQL_PASSWORD}
   data:
     redis:
       host: ${REDIS_HOST:127.0.0.1}
@@ -26,3 +26,50 @@ mybatis-plus:
       logic-delete-field: isDeleted
       logic-delete-value: 1
       logic-not-delete-value: 0
+
+springdoc:
+  api-docs:
+    path: /v3/api-docs
+  swagger-ui:
+    path: /swagger-ui.html
+    tags-sorter: alpha
+    operations-sorter: alpha
+
+aiot:
+  internal:
+    token: ${AIOT_INTERNAL_TOKEN}
+  events:
+    device-status-stream: ${AIOT_EVENTS_DEVICE_STATUS_STREAM:aiot:stream:device-event}
+  emqx:
+    webhook:
+      secret: ${AIOT_EMQX_WEBHOOK_SECRET}
+      max-skew-seconds: ${AIOT_EMQX_WEBHOOK_MAX_SKEW_SECONDS:300}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus
+  endpoint:
+    health:
+      probes:
+        enabled: true
+      show-details: when_authorized
+  health:
+    livenessstate:
+      enabled: true
+    readinessstate:
+      enabled: true
+  prometheus:
+    metrics:
+      export:
+        enabled: true
+  metrics:
+    tags:
+      application: ${spring.application.name}
+      env: ${AIOT_ENV:local}
+    distribution:
+      percentiles-histogram:
+        http:
+          server:
+            requests: true

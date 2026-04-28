@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AIoT 后台管理系统</title>
+  <link rel="stylesheet" href="/admin/style.css" />
+</head>
+<body>
+  <div class="app">
+    <header class="topbar">
+      <h1>AIoT 后台管理系统</h1>
+      <div class="token-box">
+        <input id="tokenInput" type="password" placeholder="粘贴 Bearer Token（不含 Bearer 前缀）" />
+        <button id="saveTokenBtn">保存 Token</button>
+      </div>
+    </header>
+
+    <section class="grid stats" id="statsCards"></section>
+
+    <section class="panel">
+      <div class="panel-header">
+        <h2>设备分页列表</h2>
+        <div class="filters">
+          <input id="deviceHomeId" placeholder="homeId（可选）" />
+          <input id="deviceProductKey" placeholder="productKey（可选）" />
+          <select id="deviceStatus">
+            <option value="">全部状态</option>
+            <option value="0">未激活</option>
+            <option value="1">在线</option>
+            <option value="2">离线</option>
+          </select>
+          <input id="devicePageNo" type="number" min="1" value="1" />
+          <input id="devicePageSize" type="number" min="1" max="200" value="20" />
+          <button id="loadDevicesBtn">查询设备</button>
+        </div>
+      </div>
+      <table>
+        <thead>
+          <tr>
+            <th>设备ID</th>
+            <th>名称</th>
+            <th>homeId</th>
+            <th>productKey</th>
+            <th>状态</th>
+            <th>固件版本</th>
+          </tr>
+        </thead>
+        <tbody id="deviceTableBody"></tbody>
+      </table>
+      <p class="hint" id="devicePageHint"></p>
+    </section>
+
+    <section class="panel">
+      <div class="panel-header">
+        <h2>OTA 任务分页列表</h2>
+        <div class="filters">
+          <input id="otaHomeId" placeholder="homeId（可选）" />
+          <input id="otaProductKey" placeholder="productKey（可选）" />
+          <select id="otaStatus">
+            <option value="">全部状态</option>
+            <option value="1">进行中</option>
+            <option value="2">已完成</option>
+          </select>
+          <input id="otaPageNo" type="number" min="1" value="1" />
+          <input id="otaPageSize" type="number" min="1" max="200" value="20" />
+          <button id="loadOtaBtn">查询 OTA</button>
+        </div>
+      </div>
+      <table>
+        <thead>
+          <tr>
+            <th>任务ID</th>
+            <th>homeId</th>
+            <th>productKey</th>
+            <th>目标版本</th>
+            <th>状态</th>
+            <th>成功/失败/总数</th>
+          </tr>
+        </thead>
+        <tbody id="otaTableBody"></tbody>
+      </table>
+      <p class="hint" id="otaPageHint"></p>
+    </section>
+  </div>
+
+  <script src="/admin/app.js"></script>
+</body>
+</html>

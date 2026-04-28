@@ -1,0 +1,9 @@
+{
+  "name": "user-login-validate-failed",
+  "httpStatus": 400,
+  "requiredJsonPaths": [
+    "$.code",
+    "$.message",
+    "$.data"
+  ]
+}

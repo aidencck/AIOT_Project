@@ -4,6 +4,10 @@ server:
 spring:
   application:
     name: aiot-gateway
+  autoconfigure:
+    exclude:
+      - org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration
+      - org.mybatis.spring.boot.autoconfigure.MybatisAutoConfiguration
   cloud:
     nacos:
       discovery:
@@ -11,9 +15,51 @@ spring:
     gateway:
       discovery:
         locator:
-          enabled: true
+          enabled: false
       routes:
         - id: aiot-device-service
           uri: lb://aiot-device-service
           predicates:
             - Path=/api/v1/devices/**
+        - id: aiot-auth-service
+          uri: lb://aiot-auth-service
+          predicates:
+            - Path=/api/v1/emqx/**,/api/v1/auth/**
+        - id: aiot-home-service
+          uri: lb://aiot-home-service
+          predicates:
+            - Path=/api/v1/users/**,/api/v1/homes/**,/api/v1/rooms/**
+
+aiot:
+  security:
+    jwt:
+      secret: ${AIOT_JWT_SECRET}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus
+  endpoint:
+    health:
+      probes:
+        enabled: true
+      show-details: when_authorized
+  health:
+    livenessstate:
+      enabled: true
+    readinessstate:
+      enabled: true
+  prometheus:
+    metrics:
+      export:
+        enabled: true
+  metrics:
+    tags:
+      application: ${spring.application.name}
+      env: ${AIOT_ENV:local}
+    distribution:
+      percentiles-histogram:
+        http:
+          server:
+            requests: true
