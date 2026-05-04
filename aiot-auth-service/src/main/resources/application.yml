@@ -4,10 +4,24 @@ server:
 spring:
   application:
     name: aiot-auth-service
+  config:
+    import: optional:nacos:${spring.application.name}.yaml?group=${NACOS_CONFIG_GROUP:DEFAULT_GROUP}&namespace=${NACOS_NAMESPACE:public}
   cloud:
     nacos:
       discovery:
         server-addr: ${NACOS_ADDR:127.0.0.1:8848}
+        namespace: ${NACOS_NAMESPACE:public}
+        group: ${NACOS_DISCOVERY_GROUP:DEFAULT_GROUP}
+        register-enabled: ${NACOS_REGISTER_ENABLED:true}
+        username: ${NACOS_USERNAME:}
+        password: ${NACOS_PASSWORD:}
+      config:
+        server-addr: ${NACOS_ADDR:127.0.0.1:8848}
+        namespace: ${NACOS_NAMESPACE:public}
+        group: ${NACOS_CONFIG_GROUP:DEFAULT_GROUP}
+        file-extension: yaml
+        username: ${NACOS_USERNAME:}
+        password: ${NACOS_PASSWORD:}
   datasource:
     driver-class-name: com.mysql.cj.jdbc.Driver
     url: jdbc:mysql://${MYSQL_HOST:127.0.0.1:3306}/aiot_cloud?useUnicode=true&characterEncoding=utf-8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
@@ -40,6 +54,8 @@ aiot:
     token: ${AIOT_INTERNAL_TOKEN}
   events:
     device-status-stream: ${AIOT_EVENTS_DEVICE_STATUS_STREAM:aiot:stream:device-event}
+    device-status-stream-dlq: ${AIOT_EVENTS_DEVICE_STATUS_STREAM_DLQ:aiot:stream:device-event:dlq}
+    publish-max-retries: ${AIOT_EVENTS_PUBLISH_MAX_RETRIES:2}
   emqx:
     webhook:
       secret: ${AIOT_EMQX_WEBHOOK_SECRET}

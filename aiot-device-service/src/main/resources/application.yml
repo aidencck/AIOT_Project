@@ -4,10 +4,24 @@ server:
 spring:
   application:
     name: aiot-device-service
+  config:
+    import: optional:nacos:${spring.application.name}.yaml?group=${NACOS_CONFIG_GROUP:DEFAULT_GROUP}&namespace=${NACOS_NAMESPACE:public}
   cloud:
     nacos:
       discovery:
         server-addr: ${NACOS_ADDR:127.0.0.1:8848}
+        namespace: ${NACOS_NAMESPACE:public}
+        group: ${NACOS_DISCOVERY_GROUP:DEFAULT_GROUP}
+        register-enabled: ${NACOS_REGISTER_ENABLED:true}
+        username: ${NACOS_USERNAME:}
+        password: ${NACOS_PASSWORD:}
+      config:
+        server-addr: ${NACOS_ADDR:127.0.0.1:8848}
+        namespace: ${NACOS_NAMESPACE:public}
+        group: ${NACOS_CONFIG_GROUP:DEFAULT_GROUP}
+        file-extension: yaml
+        username: ${NACOS_USERNAME:}
+        password: ${NACOS_PASSWORD:}
   datasource:
     driver-class-name: com.mysql.cj.jdbc.Driver
     url: jdbc:mysql://${MYSQL_HOST:127.0.0.1:3306}/aiot_cloud?useUnicode=true&characterEncoding=utf-8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
@@ -34,9 +48,19 @@ aiot:
     base-url: ${AIOT_HOME_SERVICE_URL:http://127.0.0.1:8083}
   rule-service:
     base-url: ${AIOT_RULE_SERVICE_URL:http://127.0.0.1:8084}
+  cross-service:
+    http:
+      timeout-ms: ${AIOT_CROSS_SERVICE_TIMEOUT_MS:2000}
+      max-retries: ${AIOT_CROSS_SERVICE_MAX_RETRIES:1}
+      retry-backoff-ms: ${AIOT_CROSS_SERVICE_RETRY_BACKOFF_MS:200}
+      circuit-breaker-failure-threshold: ${AIOT_CROSS_SERVICE_CB_FAILURE_THRESHOLD:3}
+      circuit-breaker-open-ms: ${AIOT_CROSS_SERVICE_CB_OPEN_MS:10000}
   mqtt:
     host: ${AIOT_MQTT_HOST:mqtt.aiot.com}
     port: ${AIOT_MQTT_PORT:1883}
+  provision:
+    token-ttl-seconds: ${AIOT_PROVISION_TOKEN_TTL_SECONDS:600}
+    exchange-lock-seconds: ${AIOT_PROVISION_EXCHANGE_LOCK_SECONDS:10}
   events:
     device-status-stream: ${AIOT_EVENTS_DEVICE_STATUS_STREAM:aiot:stream:device-event}
     device-status-dlq-stream: ${AIOT_EVENTS_DEVICE_STATUS_DLQ_STREAM:aiot:stream:device-event:dlq}

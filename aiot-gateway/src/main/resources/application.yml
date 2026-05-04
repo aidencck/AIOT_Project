@@ -4,6 +4,8 @@ server:
 spring:
   application:
     name: aiot-gateway
+  config:
+    import: optional:nacos:${spring.application.name}.yaml?group=${NACOS_CONFIG_GROUP:DEFAULT_GROUP}&namespace=${NACOS_NAMESPACE:public}
   autoconfigure:
     exclude:
       - org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration
@@ -12,28 +14,99 @@ spring:
     nacos:
       discovery:
         server-addr: ${NACOS_ADDR:127.0.0.1:8848}
+        namespace: ${NACOS_NAMESPACE:public}
+        group: ${NACOS_DISCOVERY_GROUP:DEFAULT_GROUP}
+        register-enabled: ${NACOS_REGISTER_ENABLED:true}
+        username: ${NACOS_USERNAME:}
+        password: ${NACOS_PASSWORD:}
+      config:
+        server-addr: ${NACOS_ADDR:127.0.0.1:8848}
+        namespace: ${NACOS_NAMESPACE:public}
+        group: ${NACOS_CONFIG_GROUP:DEFAULT_GROUP}
+        file-extension: yaml
+        username: ${NACOS_USERNAME:}
+        password: ${NACOS_PASSWORD:}
     gateway:
       discovery:
         locator:
           enabled: false
+      default-filters:
+        - RemoveRequestHeader=X-User-Id
+        - RemoveRequestHeader=X-User-Phone
+        - RemoveRequestHeader=X-Internal-Token
       routes:
         - id: aiot-device-service
           uri: lb://aiot-device-service
           predicates:
-            - Path=/api/v1/devices/**
+            - Path=/api/v1/devices/**,/api/v1/ota/**,/api/v1/provision/**
+          filters:
+            - name: CircuitBreaker
+              args:
+                name: deviceCircuitBreaker
         - id: aiot-auth-service
           uri: lb://aiot-auth-service
           predicates:
             - Path=/api/v1/emqx/**,/api/v1/auth/**
+          filters:
+            - name: RequestRateLimiter
+              args:
+                redis-rate-limiter.replenishRate: 60
+                redis-rate-limiter.burstCapacity: 120
+                key-resolver: "#{@ipKeyResolver}"
+            - name: CircuitBreaker
+              args:
+                name: authCircuitBreaker
         - id: aiot-home-service
           uri: lb://aiot-home-service
           predicates:
             - Path=/api/v1/users/**,/api/v1/homes/**,/api/v1/rooms/**
+          filters:
+            - name: RequestRateLimiter
+              args:
+                redis-rate-limiter.replenishRate: 30
+                redis-rate-limiter.burstCapacity: 60
+                key-resolver: "#{@ipKeyResolver}"
+            - name: CircuitBreaker
+              args:
+                name: homeCircuitBreaker
+  data:
+    redis:
+      host: ${REDIS_HOST:127.0.0.1}
+      port: ${REDIS_PORT:6379}
+      timeout: 3s
 
 aiot:
+  internal:
+    token: ${AIOT_INTERNAL_TOKEN:}
   security:
     jwt:
       secret: ${AIOT_JWT_SECRET}
+      issuer: ${AIOT_JWT_ISSUER:}
+      audience: ${AIOT_JWT_AUDIENCE:}
+      require-jti: ${AIOT_JWT_REQUIRE_JTI:true}
+      clock-skew-seconds: ${AIOT_JWT_CLOCK_SKEW_SECONDS:60}
+
+resilience4j:
+  circuitbreaker:
+    instances:
+      authCircuitBreaker:
+        slidingWindowType: COUNT_BASED
+        slidingWindowSize: 50
+        failureRateThreshold: 50
+        minimumNumberOfCalls: 20
+        waitDurationInOpenState: 10s
+      homeCircuitBreaker:
+        slidingWindowType: COUNT_BASED
+        slidingWindowSize: 50
+        failureRateThreshold: 50
+        minimumNumberOfCalls: 20
+        waitDurationInOpenState: 10s
+      deviceCircuitBreaker:
+        slidingWindowType: COUNT_BASED
+        slidingWindowSize: 50
+        failureRateThreshold: 50
+        minimumNumberOfCalls: 20
+        waitDurationInOpenState: 10s
 
 management:
   endpoints:
