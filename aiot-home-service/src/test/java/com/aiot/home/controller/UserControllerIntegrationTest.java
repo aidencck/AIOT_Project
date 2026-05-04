@@ -1,33 +1,44 @@
 package com.aiot.home.controller;
 
+import com.aiot.common.config.ResponseContractResolver;
 import com.aiot.common.config.GlobalResponseHandler;
 import com.aiot.common.exception.GlobalExceptionHandler;
 import com.aiot.home.dto.LoginResp;
 import com.aiot.home.service.UserService;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
-import org.springframework.boot.test.mock.mockito.MockBean;
-import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.setup.MockMvcBuilders;
+import org.springframework.test.util.ReflectionTestUtils;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doNothing;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-@WebMvcTest(UserController.class)
-@Import({GlobalResponseHandler.class, GlobalExceptionHandler.class})
 class UserControllerIntegrationTest {
 
-    @Autowired
     private MockMvc mockMvc;
 
-    @MockBean
     private UserService userService;
+
+    @BeforeEach
+    void setUp() {
+        userService = mock(UserService.class);
+        UserController userController = new UserController();
+        ReflectionTestUtils.setField(userController, "userService", userService);
+
+        ObjectMapper objectMapper = new ObjectMapper();
+        mockMvc = MockMvcBuilders.standaloneSetup(userController)
+                .setControllerAdvice(new GlobalExceptionHandler(),
+                        new GlobalResponseHandler(objectMapper, new ResponseContractResolver()))
+                .build();
+    }
 
     @Test
     void login_shouldReturnWrappedResult() throws Exception {

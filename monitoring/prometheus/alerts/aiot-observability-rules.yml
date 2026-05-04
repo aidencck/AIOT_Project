@@ -1,0 +1,52 @@
+groups:
+  - name: aiot-observability-core
+    rules:
+      - alert: AuthFailureRateHigh
+        expr: |
+          (
+            sum(rate(http_server_requests_seconds_count{service="aiot-auth-service",uri="/api/v1/emqx/auth",status=~"4..|5.."}[5m]))
+            /
+            clamp_min(sum(rate(http_server_requests_seconds_count{service="aiot-auth-service",uri="/api/v1/emqx/auth"}[5m])), 1)
+          ) > 0.05
+        for: 5m
+        labels:
+          severity: critical
+          team: auth
+        annotations:
+          summary: "鉴权失败率过高"
+          description: "5分钟窗口内 EMQX 鉴权接口失败率超过5%，请优先排查认证依赖、密钥、回调签名与网关流量。"
+
+      - alert: StreamConsumeFailureRateHigh
+        expr: |
+          (
+            sum(rate(aiot_stream_consume_failed_total[5m]))
+            /
+            clamp_min(sum(rate(aiot_stream_consume_total[5m])), 1)
+          ) > 0.02
+        for: 10m
+        labels:
+          severity: warning
+          team: event
+        annotations:
+          summary: "事件消费失败率过高"
+          description: "10分钟窗口内事件消费失败率超过2%，建议检查消费者重试、序列化与下游依赖。"
+
+      - alert: DlqGrowthRateHigh
+        expr: sum(rate(aiot_stream_dlq_published_total[5m])) > 2
+        for: 5m
+        labels:
+          severity: critical
+          team: event
+        annotations:
+          summary: "DLQ 增长率过高"
+          description: "DLQ 每秒新增超过2条，建议立即排查反序列化、规则执行与外部接口异常。"
+
+      - alert: PendingRecoveryFailureRateHigh
+        expr: sum(rate(aiot_stream_pending_recovery_failed_total[5m])) > 0.5
+        for: 10m
+        labels:
+          severity: warning
+          team: event
+        annotations:
+          summary: "Pending 回收失败率偏高"
+          description: "pending 回收失败每秒超过0.5次，建议检查 Redis Stream 可用性与消费组状态。"

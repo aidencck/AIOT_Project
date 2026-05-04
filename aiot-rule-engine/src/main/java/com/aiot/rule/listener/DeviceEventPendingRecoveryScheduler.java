@@ -4,16 +4,17 @@ import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.data.redis.connection.stream.Consumer;
+import org.springframework.data.domain.Range;
 import org.springframework.data.redis.connection.stream.MapRecord;
-import org.springframework.data.redis.connection.stream.ReadOffset;
-import org.springframework.data.redis.connection.stream.StreamOffset;
-import org.springframework.data.redis.connection.stream.StreamReadOptions;
+import org.springframework.data.redis.connection.stream.PendingMessage;
+import org.springframework.data.redis.connection.stream.PendingMessages;
+import org.springframework.data.redis.connection.stream.RecordId;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.List;
 
 @Slf4j
@@ -27,6 +28,10 @@ public class DeviceEventPendingRecoveryScheduler {
     private final String consumer;
     private final boolean enabled;
     private final int maxBatchSize;
+    private final long minIdleMs;
+    private final int maxDeliveryCount;
+    private final Counter scannedCounter;
+    private final Counter claimedCounter;
     private final Counter recoveredCounter;
     private final Counter failedCounter;
 
@@ -38,14 +43,26 @@ public class DeviceEventPendingRecoveryScheduler {
             @Value("${aiot.events.device-status-stream-group:aiot-rule-engine-group}") String group,
             @Value("${aiot.events.device-status-stream-consumer:aiot-rule-engine}") String consumer,
             @Value("${aiot.events.pending-reclaim.enabled:true}") boolean enabled,
-            @Value("${aiot.events.pending-reclaim.max-batch-size:64}") int maxBatchSize) {
+            @Value("${aiot.events.pending-reclaim.max-batch-size:64}") int maxBatchSize,
+            @Value("${aiot.events.pending-reclaim.min-idle-ms:60000}") long minIdleMs,
+            @Value("${aiot.events.pending-reclaim.max-delivery-count:10}") int maxDeliveryCount) {
         this.stringRedisTemplate = stringRedisTemplate;
         this.subscriber = subscriber;
         this.streamKey = streamKey;
         this.group = group;
         this.consumer = consumer;
         this.enabled = enabled;
-        this.maxBatchSize = maxBatchSize;
+        this.maxBatchSize = Math.max(maxBatchSize, 1);
+        this.minIdleMs = Math.max(minIdleMs, 0L);
+        this.maxDeliveryCount = Math.max(maxDeliveryCount, 1);
+        this.scannedCounter = Counter.builder("aiot.stream.pending.scanned.total")
+                .tag("service", "aiot-rule-engine")
+                .tag("stream", streamKey)
+                .register(meterRegistry);
+        this.claimedCounter = Counter.builder("aiot.stream.pending.claimed.total")
+                .tag("service", "aiot-rule-engine")
+                .tag("stream", streamKey)
+                .register(meterRegistry);
         this.recoveredCounter = Counter.builder("aiot.stream.pending.recovered.total")
                 .tag("service", "aiot-rule-engine")
                 .tag("stream", streamKey)
@@ -62,19 +79,41 @@ public class DeviceEventPendingRecoveryScheduler {
             return;
         }
         try {
-            List<MapRecord<String, Object, Object>> pendingRecords = stringRedisTemplate.opsForStream().read(
-                    Consumer.from(group, consumer),
-                    StreamReadOptions.empty().count(maxBatchSize).block(Duration.ofMillis(100)),
-                    StreamOffset.create(streamKey, ReadOffset.from("0-0"))
+            PendingMessages pendingMessages = stringRedisTemplate.opsForStream().pending(
+                    streamKey, group, Range.unbounded(), maxBatchSize
+            );
+            if (pendingMessages == null || pendingMessages.isEmpty()) {
+                return;
+            }
+            List<RecordId> ids = new ArrayList<>();
+            for (PendingMessage pendingMessage : pendingMessages) {
+                scannedCounter.increment();
+                if (pendingMessage.getTotalDeliveryCount() > maxDeliveryCount) {
+                    continue;
+                }
+                ids.add(pendingMessage.getId());
+            }
+            if (ids.isEmpty()) {
+                return;
+            }
+            List<MapRecord<String, Object, Object>> pendingRecords = stringRedisTemplate.opsForStream().claim(
+                    streamKey, group, consumer, Duration.ofMillis(minIdleMs), ids.toArray(new RecordId[0])
             );
             if (pendingRecords == null || pendingRecords.isEmpty()) {
                 return;
             }
-            log.info("Recovering pending stream records, stream={}, group={}, consumer={}, size={}",
-                    streamKey, group, consumer, pendingRecords.size());
+            claimedCounter.increment(pendingRecords.size());
+            log.info("Recovering pending stream records, stream={}, group={}, consumer={}, size={}, minIdleMs={}",
+                    streamKey, group, consumer, pendingRecords.size(), minIdleMs);
             for (MapRecord<String, Object, Object> record : pendingRecords) {
-                subscriber.onMessage(castRecord(record));
-                recoveredCounter.increment();
+                try {
+                    subscriber.onMessage(castRecord(record));
+                    recoveredCounter.increment();
+                } catch (Exception ex) {
+                    failedCounter.increment();
+                    log.warn("Failed to replay reclaimed rule message, stream={}, group={}, consumer={}, recordId={}",
+                            streamKey, group, consumer, record.getId(), ex);
+                }
             }
         } catch (Exception ex) {
             failedCounter.increment();

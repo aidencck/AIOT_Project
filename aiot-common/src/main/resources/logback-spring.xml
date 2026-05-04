@@ -49,8 +49,8 @@
         </filter>
     </appender>
 
-    <!-- Spring Profile: 本地开发/测试环境打印到控制台 -->
-    <springProfile name="dev,test,local">
+    <!-- Spring Profile: 本地开发/测试/默认环境打印到控制台 -->
+    <springProfile name="dev,test,local,default">
         <root level="INFO">
             <appender-ref ref="CONSOLE"/>
         </root>

@@ -5,7 +5,6 @@ import com.aiot.auth.dto.EmqxWebhookReq;
 import com.aiot.auth.service.AuthService;
 import com.aiot.common.config.SkipResponseWrap;
 import jakarta.validation.Valid;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -19,8 +18,11 @@ import org.springframework.web.bind.annotation.*;
 @SkipResponseWrap
 public class EmqxAuthController {
 
-    @Autowired
-    private AuthService authService;
+    private final AuthService authService;
+
+    public EmqxAuthController(AuthService authService) {
+        this.authService = authService;
+    }
 
     @PostMapping("/auth")
     public ResponseEntity<String> authenticate(@Valid @RequestBody EmqxAuthReq req) {

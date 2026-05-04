@@ -55,7 +55,7 @@ bash scripts/perf_device_status_webhook.sh 20000 200 5000 /tmp/device_status_per
 | 检查项 | 命令 | 结果 |
 | --- | --- | --- |
 | Auth 健康检查 | `curl -s -o /dev/null -w "%{http_code}" http://localhost:8082/actuator/health` | `500` |
-| Device 健康检查 | `curl -s -o /dev/null -w "%{http_code}" http://localhost:8083/actuator/health` | `404` |
+| Device 健康检查 | `curl -s -o /dev/null -w "%{http_code}" http://localhost:8081/actuator/health` | `404` |
 
 ### 脚本可执行性验证（非业务有效基线）
 

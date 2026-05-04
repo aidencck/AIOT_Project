@@ -1,5 +1,7 @@
 # 测试与排障
 
+最后更新：`2026-04-30`
+
 ## 构建与验证
 
 1. 全量构建验证：
@@ -19,12 +21,25 @@ mvn clean install -DskipTests
 - 变更检测：按目录识别受影响服务
 - 增量构建：仅对变更服务执行 Maven 构建与镜像构建
 - 增量部署：服务器仅 `pull/up` 变更服务
+- 回滚能力：支持单服务回滚工作流（与回滚脚本配套）
+
+## 发布与回滚演练
+
+- 发布脚本：`scripts/deploy_single_service.sh`
+- 回滚脚本：`scripts/rollback_single_service.sh`
+- 发布健康验证：`scripts/verify_release_health.sh`
+- 发布门禁检查：`scripts/release_gate_check.sh`
+- 最小发布闭环：`scripts/release_canary_with_rollback.sh`
+- 运行手册：`docs/runbooks/single-service-rollback.md`
+- 演练模板：`docs/runbooks/release-drill-template.md`
+
+建议：每月至少一次“发布失败 -> 回滚 -> 恢复验证”演练，并归档复盘记录。
 
 ## API 自检入口
 
 - Device Swagger：`http://localhost:8081/swagger-ui.html`
 - Auth Swagger：`http://localhost:8082/swagger-ui.html`
-- Home Swagger：`http://localhost:8083/swagger-ui.html`（需本地启动家庭服务）
+- Home Swagger：`http://localhost:8083/swagger-ui.html`（默认需本地启动；Compose 场景下 home 未映射宿主机端口）
 
 ## 常见问题
 
@@ -32,7 +47,7 @@ mvn clean install -DskipTests
 处理：先执行 `docker compose ps` 与 `docker compose logs <service>`，确认依赖健康检查通过。
 
 2. 家庭服务端口冲突（8083）  
-处理：`8083` 同时被 EMQX WebSocket 占用，需修改家庭服务端口或调整 EMQX 端口映射。
+处理：本地单独启动 `home-service` 时，`8083` 可能与 EMQX WebSocket 冲突；可修改家庭服务端口或调整 EMQX 映射。Compose 默认未暴露 home 端口，不受影响。
 
 3. 设备操作报权限错误  
 处理：检查请求头 `Authorization` 是否有效，且用户是否具备目标 `homeId` 的最小角色权限。
@@ -43,6 +58,9 @@ mvn clean install -DskipTests
 5. Compose 拉取镜像失败  
 处理：检查 GHCR 访问权限与网络连通性，必要时登录容器仓库后重试。
 
+6. 内部接口调用返回 401  
+处理：检查是否携带 `X-Internal-Token`，并确认调用方与被调方配置一致。
+
 ## 观测建议
 
 - 使用 Actuator 健康检查确认服务状态：`/actuator/health`
@@ -51,6 +69,7 @@ mvn clean install -DskipTests
 - 指标抓取入口：`/actuator/prometheus`
 - 出现跨服务调用异常时，优先检查 Nacos 注册状态与服务名配置
 - 每次发布后优先回归：设备创建、配网 token、设备影子读写、家庭删除补偿
+- 当前缺口：部署层 Prometheus/Grafana 告警联动、鉴权失败率专用指标、事件积压深度指标
 
 ## Prometheus 抓取样例
 
@@ -64,6 +83,10 @@ scrape_configs:
           - aiot-device-service:8081
           - aiot-auth-service:8082
           - aiot-home-service:8083
+          - aiot-rule-engine:8084
+          - aiot-shadow-service:8087
+          - aiot-mqtt-adapter:8085
+          - aiot-data-parser:8086
 ```
 
 ## 事件可靠性治理（Redis Stream）

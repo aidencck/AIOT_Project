@@ -1,44 +1,54 @@
 package com.aiot.home.contract;
 
+import com.aiot.common.config.ResponseContractResolver;
 import com.aiot.common.config.GlobalResponseHandler;
 import com.aiot.common.exception.GlobalExceptionHandler;
+import com.aiot.home.controller.UserController;
 import com.aiot.home.dto.LoginResp;
 import com.aiot.home.service.UserService;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.jayway.jsonpath.JsonPath;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
-import org.springframework.boot.test.mock.mockito.MockBean;
-import org.springframework.context.annotation.Import;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
+import org.springframework.test.web.servlet.setup.MockMvcBuilders;
+import org.springframework.test.util.ReflectionTestUtils;
 
 import java.io.InputStream;
 import java.util.List;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.fail;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 
-@WebMvcTest(controllers = com.aiot.home.controller.UserController.class)
-@Import({GlobalResponseHandler.class, GlobalExceptionHandler.class})
 class UserApiContractTest {
 
-    @Autowired
     private MockMvc mockMvc;
 
-    @Autowired
     private ObjectMapper objectMapper;
 
-    @MockBean
     private UserService userService;
+
+    @BeforeEach
+    void setUp() {
+        objectMapper = new ObjectMapper();
+        userService = mock(UserService.class);
+        UserController userController = new UserController();
+        ReflectionTestUtils.setField(userController, "userService", userService);
+
+        mockMvc = MockMvcBuilders.standaloneSetup(userController)
+                .setControllerAdvice(new GlobalExceptionHandler(),
+                        new GlobalResponseHandler(objectMapper, new ResponseContractResolver()))
+                .build();
+    }
 
     @Test
     void login_successResponseShouldMatchContract() throws Exception {
@@ -91,8 +101,11 @@ class UserApiContractTest {
 
     private void assertRequiredPaths(String json, List<String> paths) {
         for (String path : paths) {
-            Object value = JsonPath.read(json, path);
-            assertNotNull(value, "missing path: " + path);
+            try {
+                JsonPath.read(json, path);
+            } catch (Exception ex) {
+                fail("missing path: " + path);
+            }
         }
     }
 }

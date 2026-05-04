@@ -3,20 +3,24 @@ package com.aiot.home.service;
 import com.aiot.common.api.Result;
 import com.aiot.common.api.ResultCode;
 import com.aiot.common.exception.BusinessException;
+import com.aiot.common.http.CrossServiceHttpExecutor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 import org.springframework.web.reactive.function.client.WebClient;
-import reactor.util.retry.Retry;
-
-import java.time.Duration;
 import java.util.UUID;
 import lombok.extern.slf4j.Slf4j;
 
 @Slf4j
 @Service
 public class HomeDeviceCompensationService {
+
+    private final CrossServiceHttpExecutor crossServiceHttpExecutor;
+
+    public HomeDeviceCompensationService(CrossServiceHttpExecutor crossServiceHttpExecutor) {
+        this.crossServiceHttpExecutor = crossServiceHttpExecutor;
+    }
 
     @Value("${aiot.device-service.base-url:http://127.0.0.1:8081}")
     private String deviceServiceBaseUrl;
@@ -36,20 +40,28 @@ public class HomeDeviceCompensationService {
         if (!StringUtils.hasText(internalToken)) {
             throw new BusinessException(ResultCode.FAILED, "缺少内部通信令牌，无法执行跨服务补偿");
         }
+        if (!StringUtils.hasText(deviceServiceBaseUrl)) {
+            throw new BusinessException(ResultCode.FAILED, "设备服务地址未配置");
+        }
+        if (!StringUtils.hasText(value)) {
+            throw new BusinessException(ResultCode.VALIDATE_FAILED, "补偿目标标识不能为空");
+        }
+        String baseUrl = deviceServiceBaseUrl;
+
         String auditId = UUID.randomUUID().toString();
         log.info("Compensation start, auditId={}, action={}, target={}", auditId, action, value);
         try {
-            Result<Boolean> result = WebClient.builder()
-                    .baseUrl(deviceServiceBaseUrl)
-                    .defaultHeader("X-Internal-Token", internalToken)
-                    .build()
-                    .post()
-                    .uri(path, value)
-                    .retrieve()
-                    .bodyToMono(new ParameterizedTypeReference<Result<Boolean>>() {})
-                    .timeout(Duration.ofSeconds(2))
-                    .retryWhen(Retry.backoff(1, Duration.ofMillis(200)))
-                    .block();
+            Result<Boolean> result = crossServiceHttpExecutor.execute(
+                    "home-device-compensation",
+                    () -> WebClient.builder()
+                            .baseUrl(baseUrl)
+                            .defaultHeader("X-Internal-Token", internalToken)
+                            .build()
+                            .post()
+                            .uri(path, value)
+                            .retrieve()
+                            .bodyToMono(new ParameterizedTypeReference<Result<Boolean>>() {})
+            );
             if (result == null || result.getCode() == null
                     || !ResultCode.SUCCESS.getCode().equals(result.getCode())
                     || !Boolean.TRUE.equals(result.getData())) {

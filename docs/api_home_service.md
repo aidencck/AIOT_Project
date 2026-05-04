@@ -101,5 +101,6 @@
 - **Method**: `GET`
 
 ### 3.3 删除房间
-- **URL**: `/api/v1/rooms/{roomId}`
+- **URL**: `/api/v1/rooms/{roomId}?homeId=home_123`
 - **Method**: `DELETE`
+- **说明**: `homeId` 为必填参数，用于权限校验。

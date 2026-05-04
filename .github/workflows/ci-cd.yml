@@ -287,7 +287,9 @@ jobs:
         run: |
           bash -n scripts/test_provision_and_webhook.sh
           bash -n scripts/test_service_communication.sh
-          shellcheck scripts/test_provision_and_webhook.sh scripts/test_service_communication.sh
+          bash -n scripts/release_gate_check.sh
+          bash -n scripts/release_canary_with_rollback.sh
+          shellcheck scripts/test_provision_and_webhook.sh scripts/test_service_communication.sh scripts/release_gate_check.sh scripts/release_canary_with_rollback.sh
 
       - name: Validate internal communication configs
         run: |
@@ -669,19 +671,157 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # 6. 部署到目标服务器 (Deploy via Docker Compose)
-      - name: Deploy application
+      # 6. 灰度发布 + 自动回滚最小闭环（Deploy with Canary & Auto Rollback）
+      - name: Deploy application with canary and auto rollback
         uses: appleboy/ssh-action@v1.0.3
+        env:
+          SERVICES: ${{ join(fromJson(needs.detect-changes.outputs.services), ' ') }}
+          RELEASE_SHA: ${{ github.sha }}
+          HEALTH_TIMEOUT: "180"
+          HEALTH_INTERVAL: "5"
+          CANARY_SECONDS: "120"
+          CANARY_INTERVAL: "15"
         with:
           host: ${{ secrets.SERVER_HOST }}
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SERVER_SSH_KEY }}
+          envs: SERVICES,RELEASE_SHA,HEALTH_TIMEOUT,HEALTH_INTERVAL,CANARY_SECONDS,CANARY_INTERVAL
+          script_stop: true
           script: |
+            set -euo pipefail
+
+            health_url_for_service() {
+              case "$1" in
+                aiot-gateway) echo "http://127.0.0.1:8080/actuator/health/readiness" ;;
+                aiot-device-service) echo "http://127.0.0.1:8081/actuator/health/readiness" ;;
+                aiot-auth-service) echo "http://127.0.0.1:8082/actuator/health/readiness" ;;
+                aiot-home-service) echo "http://127.0.0.1:8083/actuator/health/readiness" ;;
+                aiot-rule-engine) echo "http://127.0.0.1:8084/actuator/health/readiness" ;;
+                aiot-mqtt-adapter) echo "http://127.0.0.1:8085/actuator/health/readiness" ;;
+                aiot-data-parser) echo "http://127.0.0.1:8086/actuator/health/readiness" ;;
+                aiot-shadow-service) echo "http://127.0.0.1:8087/actuator/health/readiness" ;;
+                *) echo "" ;;
+              esac
+            }
+
+            verify_service_health() {
+              local service="$1"
+              local timeout="$2"
+              local interval="$3"
+              local cid
+              local url
+              local start_ts
+
+              cid="$(docker compose ps -q "${service}" || true)"
+              if [[ -z "${cid}" ]]; then
+                echo "ERROR: ${service} 没有运行中的容器"
+                return 1
+              fi
+
+              url="$(health_url_for_service "${service}")"
+              start_ts="$(date +%s)"
+
+              while true; do
+                local now state health state_ok http_ok
+                now="$(date +%s)"
+                if (( now - start_ts > timeout )); then
+                  echo "ERROR: ${service} 健康检查超时 (${timeout}s)"
+                  docker compose ps "${service}" || true
+                  docker logs --tail 120 "${cid}" || true
+                  return 1
+                fi
+
+                state="$(docker inspect --format '{{.State.Status}}' "${cid}" 2>/dev/null || echo unknown)"
+                health="$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "${cid}" 2>/dev/null || echo unknown)"
+                state_ok="0"
+                http_ok="1"
+
+                if [[ "${state}" == "running" ]] && [[ "${health}" == "healthy" || "${health}" == "none" ]]; then
+                  state_ok="1"
+                fi
+
+                if [[ -n "${url}" ]] && ! curl -fsS "${url}" >/dev/null 2>&1; then
+                  http_ok="0"
+                fi
+
+                if [[ "${state_ok}" == "1" && "${http_ok}" == "1" ]]; then
+                  return 0
+                fi
+
+                if [[ "${state}" == "exited" || "${state}" == "dead" || "${health}" == "unhealthy" ]]; then
+                  echo "ERROR: ${service} 状态异常 state=${state} health=${health}"
+                  docker compose ps "${service}" || true
+                  docker logs --tail 120 "${cid}" || true
+                  return 1
+                fi
+
+                sleep "${interval}"
+              done
+            }
+
+            rollback_service() {
+              local service="$1"
+              local previous_image="$2"
+              local rollback_tag
+
+              if [[ -z "${previous_image}" ]]; then
+                echo "ERROR: ${service} 未找到可回滚的历史镜像"
+                return 1
+              fi
+              if [[ "${previous_image}" != *":"* ]]; then
+                echo "ERROR: ${service} 历史镜像无 tag: ${previous_image}"
+                return 1
+              fi
+
+              rollback_tag="${previous_image##*:}"
+              echo "[Rollback] ${service} -> ${rollback_tag}"
+              IMAGE_TAG="${rollback_tag}" docker compose pull "${service}"
+              IMAGE_TAG="${rollback_tag}" docker compose up -d --remove-orphans --no-deps "${service}"
+              verify_service_health "${service}" "${HEALTH_TIMEOUT}" "${HEALTH_INTERVAL}"
+            }
+
+            deploy_with_canary() {
+              local service="$1"
+              local target_tag="$2"
+              local previous_cid previous_image canary_deadline
+
+              previous_cid="$(docker compose ps -q "${service}" || true)"
+              previous_image=""
+              if [[ -n "${previous_cid}" ]]; then
+                previous_image="$(docker inspect --format '{{.Config.Image}}' "${previous_cid}" 2>/dev/null || true)"
+              fi
+
+              echo "[Deploy] ${service} -> ${target_tag}"
+              IMAGE_TAG="${target_tag}" docker compose pull "${service}"
+              IMAGE_TAG="${target_tag}" docker compose up -d --remove-orphans --no-deps "${service}"
+              verify_service_health "${service}" "${HEALTH_TIMEOUT}" "${HEALTH_INTERVAL}"
+
+              echo "[Canary] ${service} 观察 ${CANARY_SECONDS}s"
+              canary_deadline=$(( $(date +%s) + CANARY_SECONDS ))
+              while (( $(date +%s) < canary_deadline )); do
+                if ! verify_service_health "${service}" "${HEALTH_INTERVAL}" "${HEALTH_INTERVAL}"; then
+                  echo "[Canary] ${service} 检测失败，触发自动回滚"
+                  rollback_service "${service}" "${previous_image}"
+                  return 1
+                fi
+                sleep "${CANARY_INTERVAL}"
+              done
+              echo "[Canary] ${service} 通过"
+              return 0
+            }
+
             # 假设服务器上的项目路径为 /opt/aiot-cloud
             cd /opt/aiot-cloud
-            # 仅拉取变更服务镜像
-            docker compose pull ${{ join(fromJson(needs.detect-changes.outputs.services), ' ') }}
-            # 仅重建变更服务，避免全量重启
-            docker compose up -d --remove-orphans --no-deps ${{ join(fromJson(needs.detect-changes.outputs.services), ' ') }}
-            # 清理旧镜像
+            target_tag="sha-${RELEASE_SHA:0:7}"
+            services="${SERVICES}"
+
+            if [[ -z "${services}" ]]; then
+              echo "No changed services to deploy."
+              exit 0
+            fi
+
+            for service in ${services}; do
+              deploy_with_canary "${service}" "${target_tag}"
+            done
+
             docker image prune -f

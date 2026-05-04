@@ -17,11 +17,20 @@
 
 ## 微服务端口（Compose）
 
-- Gateway：`8080`
-- Device Service：`8081`
-- Auth Service：`8082`
+| 服务 | 服务内端口 | Compose 对宿主机暴露 |
+| --- | --- | --- |
+| Gateway | `8080` | 是（`8080:8080`） |
+| Device Service | `8081` | 否（仅容器内网络） |
+| Auth Service | `8082` | 否（仅容器内网络） |
+| Home Service | `8083` | 否（仅容器内网络） |
+| Rule Engine | `8084` | 否（仅容器内网络） |
+| MQTT Adapter | `8085` | 否（仅容器内网络） |
+| Data Parser | `8086` | 否（仅容器内网络） |
+| Shadow Service | `8087`（Compose 环境变量覆盖） | 否（仅容器内网络） |
 
-说明：`aiot-home-service` 默认端口为 `8083`，与 EMQX WebSocket 端口冲突。若在同机本地运行家庭服务，请调整其端口或停用 EMQX WebSocket 映射。
+说明：
+- `aiot-home-service` 默认 `8083`，与 EMQX WebSocket 在“宿主机端口”上潜在冲突；当前 Compose 未暴露 home 端口，因此不会直接冲突。
+- `aiot-shadow-service` 代码默认端口为 `8083`，但 Compose 通过 `SERVER_PORT=8087` 覆盖。
 
 ## 常用启动方式
 
@@ -38,6 +47,13 @@ docker compose up -d
 mvn clean install -DskipTests
 ```
 
+3. 全量 Compose 联调（仅网关和中间件对宿主机开放）：
+
+```bash
+docker compose up -d
+docker compose ps
+```
+
 ## 关键环境变量（Compose）
 
 - `IMAGE_TAG`：镜像标签，默认 `main`
@@ -51,4 +67,4 @@ mvn clean install -DskipTests
 
 - 新增服务时同步更新 `docker-compose.yml` 与本页配置说明
 - 所有敏感配置通过环境变量注入，不在代码中硬编码
-- 端口调整后同步更新 README 与 API 文档入口
+- 端口调整后同步更新 README、Wiki 与压测/排障文档

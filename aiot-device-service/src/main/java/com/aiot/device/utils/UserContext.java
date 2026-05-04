@@ -1,21 +1,30 @@
 package com.aiot.device.utils;
 
+import com.aiot.common.security.RequestUserContext;
+
 /**
  * 当前登录用户信息上下文 (ThreadLocal)
  */
 public class UserContext {
-    private static final ThreadLocal<UserInfo> USER_THREAD_LOCAL = new ThreadLocal<>();
 
     public static void set(UserInfo userInfo) {
-        USER_THREAD_LOCAL.set(userInfo);
+        if (userInfo == null) {
+            RequestUserContext.remove();
+            return;
+        }
+        RequestUserContext.set(new RequestUserContext.UserInfo(userInfo.getUserId(), userInfo.getPhone()));
     }
 
     public static UserInfo get() {
-        return USER_THREAD_LOCAL.get();
+        RequestUserContext.UserInfo userInfo = RequestUserContext.get();
+        if (userInfo == null) {
+            return null;
+        }
+        return new UserInfo(userInfo.getUserId(), userInfo.getPhone());
     }
 
     public static void remove() {
-        USER_THREAD_LOCAL.remove();
+        RequestUserContext.remove();
     }
 
     public static class UserInfo {

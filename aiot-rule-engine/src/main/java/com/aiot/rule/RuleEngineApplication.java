@@ -8,7 +8,7 @@ import org.springframework.context.annotation.ComponentScan;
 import org.springframework.scheduling.annotation.EnableScheduling;
 
 @SpringBootApplication(exclude = {DataSourceAutoConfiguration.class})
-@ComponentScan(basePackages = {"com.aiot.rule", "com.aiot.common"})
+@ComponentScan(basePackages = {"com.aiot"})
 @EnableDiscoveryClient
 @EnableScheduling
 public class RuleEngineApplication {

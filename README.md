@@ -33,17 +33,15 @@ C --> D["AI-native：规则智能+数据智能"]:::target
 
 ## 产品路线图
 
-- `M0（已完成）`：设备接入与家庭域 MVP
-- `M1（进行中）`：运营与安全基线加固
-- `M2（规划中）`：规则引擎产品化与自动化运营
-- `M3（规划中）`：AI-native 体验与行业模板化交付
+- `M1（进行中）`：完成可运营闭环（管理后台 M0 + AI-native M0 + 告警到工单闭环）
+- `M2（规划中）`：完成可复制运营（管理后台 M1 + AI-native M1 + 知识反馈闭环）
+- `M3（规划中）`：完成半自动运营（管理后台 M2 + AI-native M2，低风险场景半自动执行）
 
 | 阶段 | 产品目标 | 核心能力 | 验收口径 |
 |---|---|---|---|
-| M0 | 完成最小商业闭环 | 设备接入、认证、家庭、设备管理 | 核心链路端到端可跑通 |
-| M1 | 提升可运营性 | 管理后台、权限模型、审计与告警 | 可稳定迭代、可快速回滚 |
-| M2 | 形成规则化运营能力 | 规则编排、事件触发、自动工单闭环 | 运维效率显著提升 |
-| M3 | 打造差异化智能能力 | AI 规则建议、异常识别、行业模板 | 交付效率与客户价值提升 |
+| M1 | 可运营闭环 | 管理后台 M0、AI-native M0、审计与告警联动 | 关键告警可自动建单并可追溯 |
+| M2 | 可复制运营 | 规则编排、知识反馈、流程标准化 | 人工排障时长显著下降 |
+| M3 | 半自动运营 | AI 规则建议、低风险自动执行、行业模板 | 人工介入率下降且风险可控 |
 
 ## 技术路线图
 
@@ -55,6 +53,12 @@ C --> D["AI-native：规则智能+数据智能"]:::target
 | 可观测 | Actuator + Prometheus 基线 | SLO 驱动运维体系 | 指标分层、告警分级、运营看板 |
 | 工程效能 | 增量构建与部署已上线 | 规范驱动的平台化研发 | 模板化脚手架、质量门禁自动化 |
 | 智能化 | 规则/影子/解析模块骨架化 | AI-native 规则与数据智能平台 | 规则引擎产品化 + AI 助手能力 |
+
+| 版本 | 状态 | 技术目标 | 与产品里程碑对齐 |
+|---|---|---|---|
+| v1.1.0 | in-progress | 压测基线可复现、门禁脚本化 | 支撑 M1 稳定上线 |
+| v1.2.0 | planned | 瓶颈可归因、链路指标闭环 | 支撑 M2 规模化运营 |
+| v1.3.0 | planned | CI 性能门禁、容量模型 | 支撑 M3 半自动运营 |
 
 ## 版本迭代计划
 
@@ -68,7 +72,7 @@ C --> D["AI-native：规则智能+数据智能"]:::target
 
 ## 文档与 Wiki
 
-- 文档总览（本地 Wiki）：[`docs/wiki/README.md`](docs/wiki/README.md)
+- 统一路线图主入口（产品+技术+映射）：[`docs/wiki/README.md`](docs/wiki/README.md)
 - 现有设计与规范文档：[`docs/`](docs)
 - 变更记录：[`CHANGELOG.md`](CHANGELOG.md)
 
@@ -153,6 +157,16 @@ GitHub Actions 工作流位于 [`.github/workflows/ci-cd.yml`](.github/workflows
 1. Pull Request 构建校验（编译、测试、镜像试构建）
 2. 主分支镜像构建并推送到 GHCR
 3. 远程环境拉取镜像并执行增量部署
+
+## 交付与回滚落地
+
+- 团队执行单：[`docs/tasks/DELIVERY_ROLLBACK_AGENT_ASSIGNMENT.md`](docs/tasks/DELIVERY_ROLLBACK_AGENT_ASSIGNMENT.md)
+- 单服务回滚 Runbook：[`docs/runbooks/single-service-rollback.md`](docs/runbooks/single-service-rollback.md)
+- 发布演练模板：[`docs/runbooks/release-drill-template.md`](docs/runbooks/release-drill-template.md)
+- 单服务发布脚本：[`scripts/deploy_single_service.sh`](scripts/deploy_single_service.sh)
+- 单服务回滚脚本：[`scripts/rollback_single_service.sh`](scripts/rollback_single_service.sh)
+- 发布后健康验证脚本：[`scripts/verify_release_health.sh`](scripts/verify_release_health.sh)
+- 手动回滚工作流：[`.github/workflows/rollback.yml`](.github/workflows/rollback.yml)
 
 ## 贡献指南
 

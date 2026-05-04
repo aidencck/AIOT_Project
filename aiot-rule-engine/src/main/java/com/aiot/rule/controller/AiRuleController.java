@@ -1,6 +1,5 @@
 package com.aiot.rule.controller;
 
-import com.aiot.common.api.Result;
 import com.aiot.common.api.ResultCode;
 import com.aiot.common.exception.BusinessException;
 import com.aiot.rule.dto.RuleApproveRequest;
@@ -28,15 +27,15 @@ public class AiRuleController {
     }
 
     @PostMapping("/draft")
-    public Result<RuleDraftResponse> draftRule(@Valid @RequestBody RuleDraftRequest request) {
-        return Result.success(ruleLifecycleService.draftRule(request));
+    public RuleDraftResponse draftRule(@Valid @RequestBody RuleDraftRequest request) {
+        return ruleLifecycleService.draftRule(request);
     }
 
     @PostMapping("/{ruleId}/approve")
-    public Result<RuleDraftResponse> approveRule(@PathVariable @NotBlank(message = "ruleId 不能为空") String ruleId,
-                                                 @Valid @RequestBody RuleApproveRequest request) {
+    public RuleDraftResponse approveRule(@PathVariable @NotBlank(message = "ruleId 不能为空") String ruleId,
+                                         @Valid @RequestBody RuleApproveRequest request) {
         try {
-            return Result.success(ruleLifecycleService.approveRule(ruleId, request));
+            return ruleLifecycleService.approveRule(ruleId, request);
         } catch (IllegalArgumentException e) {
             throw new BusinessException(ResultCode.VALIDATE_FAILED, e.getMessage());
         }

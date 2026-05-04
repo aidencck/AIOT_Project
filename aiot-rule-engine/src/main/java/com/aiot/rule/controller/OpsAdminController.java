@@ -1,6 +1,5 @@
 package com.aiot.rule.controller;
 
-import com.aiot.common.api.Result;
 import com.aiot.common.api.ResultCode;
 import com.aiot.common.exception.BusinessException;
 import com.aiot.rule.dto.DashboardOverviewResponse;
@@ -34,62 +33,62 @@ public class OpsAdminController {
     }
 
     @GetMapping("/alarms")
-    public Result<List<AlarmRecord>> listAlarms(@RequestParam(required = false) String status,
-                                                @RequestParam(required = false) String deviceId) {
-        return Result.success(opsClosureService.listAlarms(status, deviceId));
+    public List<AlarmRecord> listAlarms(@RequestParam(required = false) String status,
+                                        @RequestParam(required = false) String deviceId) {
+        return opsClosureService.listAlarms(status, deviceId);
     }
 
     @PostMapping("/alarms/{alarmId}/ack")
-    public Result<Void> acknowledgeAlarm(@PathVariable @NotBlank(message = "alarmId 不能为空") String alarmId,
-                                         @RequestParam @NotBlank(message = "operator 不能为空") String operator) {
+    public Void acknowledgeAlarm(@PathVariable @NotBlank(message = "alarmId 不能为空") String alarmId,
+                                 @RequestParam @NotBlank(message = "operator 不能为空") String operator) {
         try {
             opsClosureService.acknowledgeAlarm(alarmId, operator);
-            return Result.success(null);
+            return null;
         } catch (IllegalArgumentException e) {
             throw new BusinessException(ResultCode.VALIDATE_FAILED, e.getMessage());
         }
     }
 
     @GetMapping("/work-orders")
-    public Result<List<WorkOrderRecord>> listWorkOrders(@RequestParam(required = false) String status,
-                                                        @RequestParam(required = false) String assignee) {
-        return Result.success(opsClosureService.listWorkOrders(status, assignee));
+    public List<WorkOrderRecord> listWorkOrders(@RequestParam(required = false) String status,
+                                                @RequestParam(required = false) String assignee) {
+        return opsClosureService.listWorkOrders(status, assignee);
     }
 
     @PostMapping("/work-orders/{workOrderId}/claim")
-    public Result<Void> claimWorkOrder(@PathVariable @NotBlank(message = "workOrderId 不能为空") String workOrderId,
-                                       @RequestParam @NotBlank(message = "assignee 不能为空") String assignee) {
+    public Void claimWorkOrder(@PathVariable @NotBlank(message = "workOrderId 不能为空") String workOrderId,
+                               @RequestParam @NotBlank(message = "assignee 不能为空") String assignee) {
         try {
             opsClosureService.claimWorkOrder(workOrderId, assignee);
-            return Result.success(null);
+            return null;
         } catch (IllegalArgumentException e) {
             throw new BusinessException(ResultCode.VALIDATE_FAILED, e.getMessage());
         }
     }
 
     @PostMapping("/work-orders/{workOrderId}/resolve")
-    public Result<Void> resolveWorkOrder(@PathVariable @NotBlank(message = "workOrderId 不能为空") String workOrderId,
-                                         @Valid @RequestBody WorkOrderResolveRequest request) {
+    public Void resolveWorkOrder(@PathVariable @NotBlank(message = "workOrderId 不能为空") String workOrderId,
+                                 @Valid @RequestBody WorkOrderResolveRequest request) {
         try {
             opsClosureService.resolveWorkOrder(workOrderId, request.getOperator(), request.getResult());
-            return Result.success(null);
+            return null;
         } catch (IllegalArgumentException e) {
             throw new BusinessException(ResultCode.VALIDATE_FAILED, e.getMessage());
         }
     }
 
     @PostMapping("/work-orders/sla/check")
-    public Result<Integer> checkWorkOrderSla() {
-        return Result.success(opsClosureService.checkAndMarkSlaBreached());
+    public Integer checkWorkOrderSla() {
+        return opsClosureService.checkAndMarkSlaBreached();
     }
 
     @GetMapping("/dashboard/overview")
-    public Result<DashboardOverviewResponse> overview() {
-        return Result.success(opsClosureService.getOverview());
+    public DashboardOverviewResponse overview() {
+        return opsClosureService.getOverview();
     }
 
     @GetMapping("/audits")
-    public Result<List<AuditRecord>> listAudits(@RequestParam(required = false) Integer limit) {
-        return Result.success(opsClosureService.listAudits(limit));
+    public List<AuditRecord> listAudits(@RequestParam(required = false) Integer limit) {
+        return opsClosureService.listAudits(limit);
     }
 }

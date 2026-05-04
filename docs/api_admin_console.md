@@ -33,6 +33,14 @@
 ## 3) 说明
 - 前端建议先调用 `/overview` 渲染首页指标，再按需调用 `/latest-closure` 填充列表页。
 - 若用户未绑定家庭，接口会返回业务错误提示。
+- 统一响应结构为：
+  ```json
+  {
+    "code": 200,
+    "message": "操作成功",
+    "data": { }
+  }
+  ```
 
 ## 4) 设备分页接口（前端列表页）
 - `GET /api/v1/admin-console/devices/page`

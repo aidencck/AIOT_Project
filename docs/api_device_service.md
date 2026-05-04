@@ -2,6 +2,14 @@
 
 该服务主要处理 `设备与配网域` 的相关业务，包含产品物模型定义、设备拓扑关联（网关与子设备）、一键配网及设备影子管理。
 
+## 0. 统一鉴权说明（网关 + 服务内授权）
+
+- 网关统一校验 JWT，鉴权通过后透传 `X-User-Id`、`X-User-Phone` 到下游服务。
+- `aiot-device-service` 与 `aiot-home-service` 均复用 `aiot-common` 的统一请求鉴权拦截器，不再各自维护重复鉴权逻辑。
+- 设备服务内资源授权收敛为注解方式：`@RequireHomePermission`，由 AOP 自动完成 homeId 提取与权限校验。
+- `/api/v1/provision/exchange` 为设备激活接口，网关白名单放行；其余 `/api/v1/provision/**` 接口默认要求登录用户身份。
+- 内部服务调用继续使用 `X-Internal-Token`，仅允许 `/api/v1/internal/**` 路径访问。
+
 ## 1. 产品管理 (Product Management)
 
 ### 1.1 创建产品
@@ -63,10 +71,14 @@
 - **Response**:
   ```json
   {
-    "deviceId": "160...",
-    "deviceSecret": "8c4...",
-    "mqttHost": "mqtt.aiot.com",
-    "mqttPort": 1883
+    "code": 200,
+    "message": "操作成功",
+    "data": {
+      "deviceId": "160...",
+      "deviceSecret": "8c4...",
+      "mqttHost": "mqtt.aiot.com",
+      "mqttPort": 1883
+    }
   }
   ```
 

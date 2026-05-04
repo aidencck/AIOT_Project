@@ -18,6 +18,7 @@ import org.springframework.data.redis.stream.StreamMessageListenerContainer;
 import org.springframework.data.redis.stream.Subscription;
 
 import java.time.Duration;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 
@@ -32,12 +33,16 @@ public class RedisEventListenerConfig {
             DeviceEventSubscriber deviceEventSubscriber,
             @Value("${aiot.events.device-status-stream:aiot:stream:device-event}") String deviceStatusStream,
             @Value("${aiot.events.device-status-stream-group:aiot-shadow-service-group}") String group,
-            @Value("${aiot.events.device-status-stream-consumer:aiot-shadow-service}") String consumer) {
+            @Value("${aiot.events.device-status-stream-consumer:aiot-shadow-service}") String consumer,
+            @Value("${aiot.events.consume.poll-timeout-ms:2000}") long pollTimeoutMs,
+            @Value("${aiot.events.consume.batch-size:16}") int batchSize) {
         ensureConsumerGroup(stringRedisTemplate, deviceStatusStream, group);
         StreamMessageListenerContainer.StreamMessageListenerContainerOptions<String, MapRecord<String, String, String>> options =
                 StreamMessageListenerContainer.StreamMessageListenerContainerOptions.builder()
-                        .pollTimeout(Duration.ofSeconds(2))
-                        .batchSize(16)
+                        .pollTimeout(Duration.ofMillis(Math.max(pollTimeoutMs, 100L)))
+                        .batchSize(Math.max(batchSize, 1))
+                        .errorHandler(error -> log.warn("Shadow stream consume loop error, stream={}, group={}, consumer={}",
+                                deviceStatusStream, group, consumer, error))
                         .build();
         StreamMessageListenerContainer<String, MapRecord<String, String, String>> container =
                 StreamMessageListenerContainer.create(Objects.requireNonNull(connectionFactory), options);
@@ -62,10 +67,22 @@ public class RedisEventListenerConfig {
             stringRedisTemplate.opsForStream().createGroup(streamKey, ReadOffset.latest(), group);
             log.info("Created stream consumer group, stream={}, group={}", streamKey, group);
         } catch (Exception ex) {
-            if (ex.getMessage() == null || !ex.getMessage().contains("BUSYGROUP")) {
+            if (!isBusyGroupException(ex)) {
                 throw ex;
             }
             log.info("Stream consumer group already exists, stream={}, group={}", streamKey, group);
         }
+    }
+
+    private boolean isBusyGroupException(Throwable throwable) {
+        Throwable current = throwable;
+        while (current != null) {
+            String message = current.getMessage();
+            if (message != null && message.toUpperCase(Locale.ROOT).contains("BUSYGROUP")) {
+                return true;
+            }
+            current = current.getCause();
+        }
+        return false;
     }
 }

@@ -47,6 +47,12 @@ public class AuthServiceImpl implements AuthService {
     @Value("${aiot.events.device-status-stream:aiot:stream:device-event}")
     private String deviceStatusStream;
 
+    @Value("${aiot.events.device-status-stream-dlq:aiot:stream:device-event:dlq}")
+    private String deviceStatusStreamDlq;
+
+    @Value("${aiot.events.publish-max-retries:2}")
+    private int publishMaxRetries;
+
     @Override
     public boolean authenticateDevice(EmqxAuthReq req) {
         String deviceId = req.getUsername();
@@ -157,13 +163,43 @@ public class AuthServiceImpl implements AuthService {
             fields.put("eventType", eventType.name());
             fields.put("deviceId", deviceId);
             fields.put("payload", payload);
-            redisUtils.addToStream(deviceStatusStream, fields);
-            log.info("Published device event to stream={}, eventType={}, deviceId={}",
-                    deviceStatusStream, eventType, deviceId);
+            publishWithRetry(fields, eventType, deviceId);
         } catch (JsonProcessingException e) {
             log.warn("Failed to serialize device event, eventType={}, deviceId={}", eventType, deviceId, e);
-        } catch (Exception e) {
-            log.warn("Failed to publish device event, eventType={}, deviceId={}", eventType, deviceId, e);
+        }
+    }
+
+    private void publishWithRetry(Map<String, String> fields, DeviceEventType eventType, String deviceId) {
+        int maxAttempts = Math.max(1, publishMaxRetries + 1);
+        for (int attempt = 1; attempt <= maxAttempts; attempt++) {
+            try {
+                redisUtils.addToStream(deviceStatusStream, fields);
+                log.info("Published device event to stream={}, eventType={}, deviceId={}",
+                        deviceStatusStream, eventType, deviceId);
+                return;
+            } catch (Exception ex) {
+                boolean lastAttempt = attempt == maxAttempts;
+                if (lastAttempt) {
+                    publishToDlq(fields, eventType, deviceId, ex);
+                    return;
+                }
+                log.warn("Publish device event failed, retrying. attempt={}/{}, stream={}, eventType={}, deviceId={}",
+                        attempt, maxAttempts, deviceStatusStream, eventType, deviceId, ex);
+            }
+        }
+    }
+
+    private void publishToDlq(Map<String, String> originalFields, DeviceEventType eventType, String deviceId, Exception ex) {
+        Map<String, String> dlqFields = new HashMap<>(originalFields);
+        dlqFields.put("reason", ex.getClass().getSimpleName());
+        dlqFields.put("failedAt", String.valueOf(System.currentTimeMillis()));
+        try {
+            redisUtils.addToStream(deviceStatusStreamDlq, dlqFields);
+            log.warn("Published failed device event to DLQ stream={}, eventType={}, deviceId={}",
+                    deviceStatusStreamDlq, eventType, deviceId, ex);
+        } catch (Exception dlqEx) {
+            log.error("Failed to publish device event to stream and DLQ, eventType={}, deviceId={}, stream={}, dlqStream={}",
+                    eventType, deviceId, deviceStatusStream, deviceStatusStreamDlq, dlqEx);
         }
     }
 }

@@ -33,12 +33,16 @@ public class RedisEventListenerConfig {
             DeviceEventSubscriber deviceEventSubscriber,
             @Value("${aiot.events.device-status-stream:aiot:stream:device-event}") String deviceStatusStream,
             @Value("${aiot.events.device-status-stream-group:aiot-rule-engine-group}") String group,
-            @Value("${aiot.events.device-status-stream-consumer:aiot-rule-engine}") String consumer) {
+            @Value("${aiot.events.device-status-stream-consumer:aiot-rule-engine}") String consumer,
+            @Value("${aiot.events.consume.poll-timeout-ms:2000}") long pollTimeoutMs,
+            @Value("${aiot.events.consume.batch-size:16}") int batchSize) {
         ensureConsumerGroup(stringRedisTemplate, deviceStatusStream, group);
         StreamMessageListenerContainer.StreamMessageListenerContainerOptions<String, MapRecord<String, String, String>> options =
                 StreamMessageListenerContainer.StreamMessageListenerContainerOptions.builder()
-                        .pollTimeout(Duration.ofSeconds(2))
-                        .batchSize(16)
+                        .pollTimeout(Duration.ofMillis(Math.max(pollTimeoutMs, 100L)))
+                        .batchSize(Math.max(batchSize, 1))
+                        .errorHandler(error -> log.warn("Rule stream consume loop error, stream={}, group={}, consumer={}",
+                                deviceStatusStream, group, consumer, error))
                         .build();
         StreamMessageListenerContainer<String, MapRecord<String, String, String>> container =
                 StreamMessageListenerContainer.create(Objects.requireNonNull(connectionFactory), options);

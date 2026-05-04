@@ -3,6 +3,7 @@ package com.aiot.device.service.impl;
 import com.aiot.common.api.Result;
 import com.aiot.common.api.ResultCode;
 import com.aiot.common.exception.BusinessException;
+import com.aiot.common.http.CrossServiceHttpExecutor;
 import com.aiot.device.dto.AdminDevicePageReq;
 import com.aiot.device.dto.AdminConsoleOverviewResp;
 import com.aiot.device.dto.AdminLatestClosureResp;
@@ -20,33 +21,38 @@ import com.aiot.device.service.ProductService;
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.ParameterizedTypeReference;
+import org.springframework.lang.NonNull;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 import org.springframework.web.reactive.function.client.WebClient;
-import reactor.util.retry.Retry;
-
-import java.time.Duration;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 
 @Service
 public class AdminConsoleServiceImpl implements AdminConsoleService {
 
-    @Value("${aiot.home-service.base-url:http://127.0.0.1:8083}")
-    private String homeServiceBaseUrl;
-
-    @Value("${aiot.rule-service.base-url:http://127.0.0.1:8084}")
-    private String ruleServiceBaseUrl;
+    private final @NonNull String homeServiceBaseUrl;
+    private final @NonNull String ruleServiceBaseUrl;
 
     private final ProductService productService;
     private final DeviceService deviceService;
     private final OtaService otaService;
+    private final CrossServiceHttpExecutor crossServiceHttpExecutor;
 
-    public AdminConsoleServiceImpl(ProductService productService, DeviceService deviceService, OtaService otaService) {
+    public AdminConsoleServiceImpl(ProductService productService,
+                                   DeviceService deviceService,
+                                   OtaService otaService,
+                                   CrossServiceHttpExecutor crossServiceHttpExecutor,
+                                   @Value("${aiot.home-service.base-url:http://127.0.0.1:8083}") @NonNull String homeServiceBaseUrl,
+                                   @Value("${aiot.rule-service.base-url:http://127.0.0.1:8084}") @NonNull String ruleServiceBaseUrl) {
         this.productService = productService;
         this.deviceService = deviceService;
         this.otaService = otaService;
+        this.crossServiceHttpExecutor = crossServiceHttpExecutor;
+        this.homeServiceBaseUrl = Objects.requireNonNull(homeServiceBaseUrl, "homeServiceBaseUrl must not be null");
+        this.ruleServiceBaseUrl = Objects.requireNonNull(ruleServiceBaseUrl, "ruleServiceBaseUrl must not be null");
     }
 
     @Override
@@ -134,17 +140,17 @@ public class AdminConsoleServiceImpl implements AdminConsoleService {
 
     private List<Map<String, Object>> loadHomes(String authorizationHeader) {
         ensureAuthorizationHeader(authorizationHeader);
-        Result<List<Map<String, Object>>> result = WebClient.builder()
-                .baseUrl(homeServiceBaseUrl)
-                .defaultHeader("Authorization", authorizationHeader)
-                .build()
-                .get()
-                .uri("/api/v1/homes")
-                .retrieve()
-                .bodyToMono(new ParameterizedTypeReference<Result<List<Map<String, Object>>>>() {})
-                .timeout(Duration.ofSeconds(2))
-                .retryWhen(Retry.backoff(1, Duration.ofMillis(150)))
-                .block();
+        Result<List<Map<String, Object>>> result = crossServiceHttpExecutor.execute(
+                "device-admin-home-list",
+                () -> WebClient.builder()
+                        .baseUrl(homeServiceBaseUrl)
+                        .defaultHeader("Authorization", authorizationHeader)
+                        .build()
+                        .get()
+                        .uri("/api/v1/homes")
+                        .retrieve()
+                        .bodyToMono(new ParameterizedTypeReference<Result<List<Map<String, Object>>>>() {})
+        );
         if (result == null || !ResultCode.SUCCESS.getCode().equals(result.getCode()) || result.getData() == null) {
             throw new BusinessException(ResultCode.FAILED, "拉取家庭列表失败");
         }
@@ -153,17 +159,17 @@ public class AdminConsoleServiceImpl implements AdminConsoleService {
 
     private List<Map<String, Object>> loadHomeMembers(String homeId, String authorizationHeader) {
         ensureAuthorizationHeader(authorizationHeader);
-        Result<List<Map<String, Object>>> result = WebClient.builder()
-                .baseUrl(homeServiceBaseUrl)
-                .defaultHeader("Authorization", authorizationHeader)
-                .build()
-                .get()
-                .uri("/api/v1/homes/{homeId}/members", homeId)
-                .retrieve()
-                .bodyToMono(new ParameterizedTypeReference<Result<List<Map<String, Object>>>>() {})
-                .timeout(Duration.ofSeconds(2))
-                .retryWhen(Retry.backoff(1, Duration.ofMillis(150)))
-                .block();
+        Result<List<Map<String, Object>>> result = crossServiceHttpExecutor.execute(
+                "device-admin-home-members",
+                () -> WebClient.builder()
+                        .baseUrl(homeServiceBaseUrl)
+                        .defaultHeader("Authorization", authorizationHeader)
+                        .build()
+                        .get()
+                        .uri("/api/v1/homes/{homeId}/members", homeId)
+                        .retrieve()
+                        .bodyToMono(new ParameterizedTypeReference<Result<List<Map<String, Object>>>>() {})
+        );
         if (result == null || !ResultCode.SUCCESS.getCode().equals(result.getCode()) || result.getData() == null) {
             return Collections.emptyList();
         }
@@ -171,16 +177,16 @@ public class AdminConsoleServiceImpl implements AdminConsoleService {
     }
 
     private Map<String, Object> loadOpsOverview() {
-        Result<Map<String, Object>> result = WebClient.builder()
-                .baseUrl(ruleServiceBaseUrl)
-                .build()
-                .get()
-                .uri("/api/v1/admin/dashboard/overview")
-                .retrieve()
-                .bodyToMono(new ParameterizedTypeReference<Result<Map<String, Object>>>() {})
-                .timeout(Duration.ofSeconds(2))
-                .retryWhen(Retry.backoff(1, Duration.ofMillis(150)))
-                .block();
+        Result<Map<String, Object>> result = crossServiceHttpExecutor.execute(
+                "device-admin-rule-overview",
+                () -> WebClient.builder()
+                        .baseUrl(ruleServiceBaseUrl)
+                        .build()
+                        .get()
+                        .uri("/api/v1/admin/dashboard/overview")
+                        .retrieve()
+                        .bodyToMono(new ParameterizedTypeReference<Result<Map<String, Object>>>() {})
+        );
         if (result == null || !ResultCode.SUCCESS.getCode().equals(result.getCode()) || result.getData() == null) {
             return Collections.emptyMap();
         }

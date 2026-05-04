@@ -30,8 +30,12 @@
     *   `200`: SUCCESS (操作成功)
     *   `500`: FAILED (操作失败/系统异常)
     *   `400`: VALIDATE_FAILED (参数校验失败)
+    *   `4001`: PARAM_MISSING (缺少必填参数)
+    *   `4002`: REQUEST_BODY_INVALID (请求体格式错误)
     *   `401`: UNAUTHORIZED (暂未登录或 token 过期)
     *   `403`: FORBIDDEN (没有相关权限)
+    *   `4040`: RESOURCE_NOT_FOUND (资源不存在)
+    *   `4050`: METHOD_NOT_ALLOWED (请求方法不支持)
     *   `4004`: DEVICE_NOT_FOUND (业务错误：设备不存在)
 
 ### 2.2 全局自动响应封装 (`GlobalResponseHandler`)

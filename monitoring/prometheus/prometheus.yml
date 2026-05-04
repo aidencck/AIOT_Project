@@ -1,0 +1,68 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: "aiot-gateway"
+    metrics_path: "/actuator/prometheus"
+    static_configs:
+      - targets: ["aiot-gateway:8080"]
+        labels:
+          service: "aiot-gateway"
+          domain: "gateway"
+
+  - job_name: "aiot-auth-service"
+    metrics_path: "/actuator/prometheus"
+    static_configs:
+      - targets: ["aiot-auth-service:8082"]
+        labels:
+          service: "aiot-auth-service"
+          domain: "auth"
+
+  - job_name: "aiot-device-service"
+    metrics_path: "/actuator/prometheus"
+    static_configs:
+      - targets: ["aiot-device-service:8081"]
+        labels:
+          service: "aiot-device-service"
+          domain: "device"
+
+  - job_name: "aiot-home-service"
+    metrics_path: "/actuator/prometheus"
+    static_configs:
+      - targets: ["aiot-home-service:8083"]
+        labels:
+          service: "aiot-home-service"
+          domain: "home"
+
+  - job_name: "aiot-rule-engine"
+    metrics_path: "/actuator/prometheus"
+    static_configs:
+      - targets: ["aiot-rule-engine:8084"]
+        labels:
+          service: "aiot-rule-engine"
+          domain: "rule"
+
+  - job_name: "aiot-shadow-service"
+    metrics_path: "/actuator/prometheus"
+    static_configs:
+      - targets: ["aiot-shadow-service:8087"]
+        labels:
+          service: "aiot-shadow-service"
+          domain: "shadow"
+
+  - job_name: "aiot-mqtt-adapter"
+    metrics_path: "/actuator/prometheus"
+    static_configs:
+      - targets: ["aiot-mqtt-adapter:8085"]
+        labels:
+          service: "aiot-mqtt-adapter"
+          domain: "adapter"
+
+  - job_name: "aiot-data-parser"
+    metrics_path: "/actuator/prometheus"
+    static_configs:
+      - targets: ["aiot-data-parser:8086"]
+        labels:
+          service: "aiot-data-parser"
+          domain: "parser"
