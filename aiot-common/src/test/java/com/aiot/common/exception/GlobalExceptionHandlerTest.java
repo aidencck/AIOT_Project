@@ -22,6 +22,7 @@ import org.springframework.web.servlet.NoHandlerFoundException;
 import org.springframework.web.servlet.HandlerMapping;
 import org.springframework.web.server.ResponseStatusException;
 import org.springframework.validation.BeanPropertyBindingResult;
+import org.springframework.validation.BindException;
 import org.springframework.validation.FieldError;
 
 import java.lang.reflect.Method;
@@ -101,6 +102,21 @@ class GlobalExceptionHandlerTest {
         MethodArgumentNotValidException ex = new MethodArgumentNotValidException(parameter, bindingResult);
 
         Result<?> result = (Result<?>) handler.handleMethodArgumentNotValidException(ex, request, response);
+
+        assertEquals(HttpStatus.BAD_REQUEST.value(), response.getStatus());
+        assertEquals(ResultCode.VALIDATE_FAILED.getCode(), result.getCode());
+        assertEquals("名称不能为空", result.getMessage());
+    }
+
+    @Test
+    void shouldHandleBindException() {
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        BindException ex = new BindException(new Object(), "req");
+        ex.getBindingResult().addError(new FieldError("req", "name", "名称不能为空"));
+
+        Result<?> result = (Result<?>) handler.handleBindException(ex, request, response);
 
         assertEquals(HttpStatus.BAD_REQUEST.value(), response.getStatus());
         assertEquals(ResultCode.VALIDATE_FAILED.getCode(), result.getCode());

@@ -3,7 +3,7 @@
 本目录用于维护与代码现状同步的 Wiki 文档，作为主仓库 `README.md` 的延伸说明。  
 核心目标是区分“当前已实现能力”和“目标态规划能力”，减少文档与代码漂移。
 
-最后更新：`2026-04-30`
+最后更新：`2026-05-07`
 
 ## 当前状态快照（2026-04）
 
@@ -42,11 +42,18 @@
 
 ## 分层导航
 
+### L0 总路线图（推荐先读）
+
+- 全项目路线图（12个月）：[`aiot-full-roadmap-2026Q3-2027Q2.md`](aiot-full-roadmap-2026Q3-2027Q2.md)
+  - 说明：作为 `AIOT 产研负责人` 视角的总纲，统一覆盖产品经营、AI-native、平台架构、稳定性交付与组织治理五条主线。
+- 架构评审摘要：[`../architecture-deliverables/A04_演进路线与里程碑.md`](../architecture-deliverables/A04_演进路线与里程碑.md)
+  - 说明：作为架构交付包中的里程碑评审入口，摘要化展示阶段目标、版本映射和门禁口径。
+
 ### L1 项目概览
 
-- 项目状态：[`../PROJECT_STATUS.md`](../PROJECT_STATUS.md)
-- 产品定义：[`../../AIoT_IceMaker_Product_Definition.md`](../../AIoT_IceMaker_Product_Definition.md)
-- 用户账户体系：[`../product/AIoT_User_Account_System_Plan.md`](../product/AIoT_User_Account_System_Plan.md)
+- 项目状态：[`PROJECT_STATUS`](PROJECT_STATUS)
+- 产品定义：[`AIoT_IceMaker_Product_Definition`](AIoT_IceMaker_Product_Definition)
+- 用户账户体系：[`product/AIoT_User_Account_System_Plan`](product/AIoT_User_Account_System_Plan)
 
 ### L2 当前运行基线（优先阅读）
 
@@ -60,6 +67,8 @@
 
 ### L3 AI-native 与版本路线（执行主入口）
 
+- AI-native 专项总览：[`../product/AIoT_AI_Native_Product_Roadmap`](../product/AIoT_AI_Native_Product_Roadmap.md)
+- 管理后台专项总览：[`../product/AIoT_Admin_Backoffice_Roadmap`](../product/AIoT_Admin_Backoffice_Roadmap.md)
 - AI-native 总览：[`ai-native-overview.md`](ai-native-overview.md)
 - AI-native M0 实施蓝图：[`ai-native-m0-blueprint.md`](ai-native-m0-blueprint.md)
 - AI-native 交付拆解：[`ai-native-delivery-backlog.md`](ai-native-delivery-backlog.md)
@@ -70,16 +79,16 @@
 
 ### L4 历史与专项文档
 
-- 系统架构设计：[`../architecture_design.md`](../architecture_design.md)
-- 骨架与模块规划：[`../project_skeleton_plan.md`](../project_skeleton_plan.md)
-- 技术选型与基础配置：[`../technology_selection.md`](../technology_selection.md)
-- 数据库架构与设计：[`../database_architecture.md`](../database_architecture.md)
-- 部署架构与性能评估：[`../deployment_and_performance.md`](../deployment_and_performance.md)
-- DDD 与 API 契约：[`../ddd_and_api_contract.md`](../ddd_and_api_contract.md)
-- 通用组件开发指南：[`../common_components_guide.md`](../common_components_guide.md)
-- 全局开发规范：[`../development_standards.md`](../development_standards.md)
-- MVP 功能设计：[`../mvp_features_design.md`](../mvp_features_design.md)
-- 迭代与发布计划：[`../iteration_and_release_plan.md`](../iteration_and_release_plan.md)
+- 系统架构设计：[`architecture_design`](architecture_design)（总体架构分层、边界与关键流程）
+- 骨架与模块规划：[`project_skeleton_plan`](project_skeleton_plan)（模块职责、目录结构与依赖关系）
+- 技术选型与基础配置：[`technology_selection`](technology_selection)（中间件选型原则、配置基线与取舍）
+- 数据库架构与设计：[`database_architecture`](database_architecture)（核心表模型、约束与演进策略）
+- 部署架构与性能评估：[`deployment_and_performance`](deployment_and_performance)（部署拓扑、容量假设与性能评估口径）
+- DDD 与 API 契约：[`ddd_and_api_contract`](ddd_and_api_contract)（领域边界、上下文映射与接口契约）
+- 通用组件开发指南：[`common_components_guide`](common_components_guide)（通用能力抽象、复用规则与接入方式）
+- 全局开发规范：[`development_standards`](development_standards)（编码规范、协作约定、质量门禁）
+- MVP 功能设计：[`mvp_features_design`](mvp_features_design)（MVP 范围、核心用户路径与验收标准）
+- 迭代与发布计划：[`iteration_and_release_plan`](iteration_and_release_plan)（迭代节奏、发布门禁与回滚策略）
 
 ## 文档约定
 
@@ -91,7 +100,7 @@
 
 ## 关联文档
 
-- 项目总体文档目录：[`../`](../)
-- 开发规范：[`../development_standards.md`](../development_standards.md)
-- 项目状态：[`../PROJECT_STATUS.md`](../PROJECT_STATUS.md)
-- 变更记录：[`../../CHANGELOG.md`](../../CHANGELOG.md)
+- 项目主页：[`Home`](Home)
+- 开发规范：[`development_standards`](development_standards)
+- 项目状态：[`PROJECT_STATUS`](PROJECT_STATUS)
+- 变更记录：仓库 `CHANGELOG.md`（建议在主仓库查看）

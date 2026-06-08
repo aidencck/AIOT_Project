@@ -362,3 +362,23 @@ sequenceDiagram
 - `M1`：让平台开始“辅助决策”。
 - `M2`：让平台逐步“半自动执行”。
 - `M3`：让平台具备真正的 `AI-native` 运营能力。
+
+## 20. 与全项目路线图的映射
+
+- 上位路线图：[`../wiki/aiot-full-roadmap-2026Q3-2027Q2.md`](../wiki/aiot-full-roadmap-2026Q3-2027Q2.md)
+- 本文档定位：
+  - 作为“AI-native 专项路线图”，承接全项目路线图中的智能域建设，不替代全项目总纲。
+- 阶段对应关系：
+  - `M0`：对应全项目路线图的 `2026Q3`，重点是统一事件模型、规则最小链路、知识底座设计和设备数字体准备。
+  - `M1`：对应 `2026Q4`，重点是 `DeviceEvent + Knowledge Base + Copilot + Rule Draft + Approval` 的最小智能闭环。
+  - `M2`：对应 `2027Q1`，重点是低风险动作灰度、群组/场景分析、知识反馈与半自动执行。
+  - `M3`：对应 `2027Q2`，重点是多角色 Copilot、策略推荐、平台级智能运营。
+- 关键依赖模块：
+  - `aiot-rule-engine`
+  - `aiot-data-parser`
+  - `aiot-device-service`
+  - `aiot-shadow-service`
+  - 目标态新增 `aiot-ai-service`
+- 关键经营/交付目标：
+  - 帮助平台从“可连接设备”升级为“可理解设备、可生成策略、可辅助执行”。
+  - 为管理后台、告警工单、交付复制提供可解释诊断和可审计建议能力。

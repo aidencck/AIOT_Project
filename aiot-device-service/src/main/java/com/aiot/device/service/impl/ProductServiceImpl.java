@@ -10,6 +10,7 @@ import com.aiot.device.service.ProductService;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
 import java.util.List;
@@ -23,6 +24,7 @@ public class ProductServiceImpl implements ProductService {
     private ProductRepository productRepository;
 
     @Override
+    @Transactional(rollbackFor = Exception.class)
     public String createProduct(ProductReq req) {
         Product product = new Product();
         product.setName(req.getName());
@@ -63,6 +65,7 @@ public class ProductServiceImpl implements ProductService {
     }
 
     @Override
+    @Transactional(rollbackFor = Exception.class)
     public void updateThingModel(String productKey, String thingModelJson) {
         LambdaQueryWrapper<Product> wrapper = new LambdaQueryWrapper<>();
         wrapper.eq(Product::getProductKey, productKey);

@@ -18,6 +18,7 @@ import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.servlet.NoHandlerFoundException;
 import org.springframework.web.server.ResponseStatusException;
+import org.springframework.validation.BindException;
 
 import java.util.function.Supplier;
 
@@ -69,6 +70,21 @@ public class GlobalExceptionHandler {
             response.setStatus(HttpStatus.BAD_REQUEST.value());
             log.warn("参数校验异常: {}", e.getMessage());
             String message = e.getBindingResult().getAllErrors().get(0).getDefaultMessage();
+            return Result.fail(ResultCode.VALIDATE_FAILED.getCode(), message);
+        });
+    }
+
+    @ExceptionHandler(BindException.class)
+    public Object handleBindException(BindException e,
+                                      HttpServletRequest request,
+                                      HttpServletResponse response) {
+        return protocolAware(request, response, () -> {
+            response.setStatus(HttpStatus.BAD_REQUEST.value());
+            log.warn("参数绑定/校验异常: {}", e.getMessage());
+            String message = e.getBindingResult().getAllErrors().stream()
+                    .findFirst()
+                    .map(err -> err.getDefaultMessage() == null ? "请求参数不合法" : err.getDefaultMessage())
+                    .orElse("请求参数不合法");
             return Result.fail(ResultCode.VALIDATE_FAILED.getCode(), message);
         });
     }

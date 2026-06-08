@@ -59,7 +59,7 @@ docker compose ps
 - `IMAGE_TAG`：镜像标签，默认 `main`
 - `NACOS_ADDR`：Nacos 地址，默认 `aiot-nacos:8848`
 - `MYSQL_HOST`：MySQL 地址，默认 `aiot-mysql:3306`
-- `MYSQL_PASSWORD`：MySQL root 密码，默认 `root`
+- `MYSQL_PASSWORD`：MySQL root 密码，必填（Compose 未设置默认值）
 - `REDIS_HOST`：Redis 地址，默认 `aiot-redis`
 - `EMQX_HOST`：EMQX 地址，默认 `aiot-emqx`
 

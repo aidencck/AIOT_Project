@@ -1,0 +1,44 @@
+services:
+  aiot-gateway:
+    image: aiot-gateway:local-fixed
+
+  aiot-home-service:
+    image: aiot-home-service:local
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        JAR_FILE: aiot-home-service/target/*.jar
+
+  aiot-rule-engine:
+    image: aiot-rule-engine:local
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        JAR_FILE: aiot-rule-engine/target/*.jar
+
+  aiot-shadow-service:
+    image: aiot-shadow-service:local-fixed
+
+  aiot-mqtt-adapter:
+    image: aiot-mqtt-adapter:local-fixed
+
+  aiot-data-parser:
+    image: aiot-data-parser:local-fixed
+
+  aiot-device-service:
+    image: aiot-device-service:local
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        JAR_FILE: aiot-device-service/target/*.jar
+
+  aiot-auth-service:
+    image: aiot-auth-service:local
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        JAR_FILE: aiot-auth-service/target/*.jar

@@ -180,6 +180,7 @@ public class DeviceServiceImpl implements DeviceService {
     }
 
     @Override
+    @Transactional(rollbackFor = Exception.class)
     public void updateDeviceStatus(String deviceId, Integer status) {
         Device device = deviceRepository.selectById(deviceId);
         if (device == null) {
@@ -194,6 +195,7 @@ public class DeviceServiceImpl implements DeviceService {
     }
 
     @Override
+    @Transactional(rollbackFor = Exception.class)
     public void touchHeartbeat(String deviceId) {
         Device device = deviceRepository.selectById(deviceId);
         if (device == null) {

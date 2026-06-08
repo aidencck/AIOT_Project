@@ -24,6 +24,12 @@ spring:
         username: ${NACOS_USERNAME:}
         password: ${NACOS_PASSWORD:}
 
+aiot:
+  internal:
+    token: ${AIOT_INTERNAL_TOKEN:}
+  data-parser:
+    base-url: ${AIOT_DATA_PARSER_BASE_URL:http://127.0.0.1:8086}
+
 management:
   endpoints:
     web:

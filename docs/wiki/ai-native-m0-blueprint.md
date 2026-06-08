@@ -115,5 +115,5 @@
 - GitHub Projects 中可按 Epic/Milestone/Sprint 跟踪工作项进度
 
 ## 9. 关联文档
-- 产品路线图：[`../product/AIoT_AI_Native_Product_Roadmap.md`](../product/AIoT_AI_Native_Product_Roadmap.md)
+- 产品路线图：[`product/AIoT_AI_Native_Product_Roadmap`](product/AIoT_AI_Native_Product_Roadmap)
 - 交付拆解：[`ai-native-delivery-backlog.md`](ai-native-delivery-backlog.md)

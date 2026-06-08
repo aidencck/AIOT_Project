@@ -8,7 +8,7 @@
 - 作为 GitHub Projects 中 Epic、Milestone、Sprint 任务的文档锚点。
 
 ## 文档导航
-- 产品路线图：[`../product/AIoT_AI_Native_Product_Roadmap.md`](../product/AIoT_AI_Native_Product_Roadmap.md)
+- 产品路线图：[`product/AIoT_AI_Native_Product_Roadmap`](product/AIoT_AI_Native_Product_Roadmap)
 - M0 实施蓝图：[`ai-native-m0-blueprint.md`](ai-native-m0-blueprint.md)
 - 交付拆解与 Backlog：[`ai-native-delivery-backlog.md`](ai-native-delivery-backlog.md)
 

@@ -8,7 +8,13 @@ networks:
 volumes:
   mysql-data:
   redis-data:
+  nacos-data:
   emqx-data:
+  prometheus-data:
+  grafana-data:
+  loki-data:
+  tempo-data:
+  promtail-positions:
 
 services:
   mysql:
@@ -23,6 +29,7 @@ services:
       - "3306:3306"
     volumes:
       - mysql-data:/var/lib/mysql
+      - ./docker/mysql/init:/docker-entrypoint-initdb.d:ro
     networks:
       - aiot-net
     healthcheck:
@@ -50,7 +57,6 @@ services:
 
   nacos:
     image: nacos/nacos-server:v2.3.2
-    platform: linux/amd64
     container_name: aiot-nacos
     restart: unless-stopped
     environment:
@@ -60,10 +66,12 @@ services:
     ports:
       - "8848:8848"
       - "9848:9848"
+    volumes:
+      - nacos-data:/home/nacos/data
     networks:
       - aiot-net
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8848/nacos/v1/console/health/readiness"]
+      test: ["CMD", "nc", "-z", "localhost", "8848"]
       interval: 20s
       timeout: 5s
       retries: 5
@@ -73,6 +81,9 @@ services:
     image: emqx:5.3.0
     container_name: aiot-emqx
     restart: unless-stopped
+    environment:
+      - EMQX_DASHBOARD__DEFAULT_USERNAME=${EMQX_API_USER:-admin}
+      - EMQX_DASHBOARD__DEFAULT_PASSWORD=${EMQX_API_PASSWORD}
     ports:
       - "1883:1883"
       - "8083:8083"
@@ -237,11 +248,15 @@ services:
       - NACOS_CONFIG_GROUP=${NACOS_CONFIG_GROUP:-DEFAULT_GROUP}
       - NACOS_USERNAME=${NACOS_USERNAME:-}
       - NACOS_PASSWORD=${NACOS_PASSWORD:-}
+      - AIOT_INTERNAL_TOKEN=${AIOT_INTERNAL_TOKEN}
+      - AIOT_DATA_PARSER_BASE_URL=${AIOT_DATA_PARSER_BASE_URL:-http://aiot-data-parser:8086}
       - SPRING_AUTOCONFIGURE_EXCLUDE=org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration,org.mybatis.spring.boot.autoconfigure.MybatisAutoConfiguration
       - SPRING_CLOUD_NACOS_DISCOVERY_REGISTER_ENABLED=false
       - SPRING_CLOUD_SERVICE_REGISTRY_AUTO_REGISTRATION_ENABLED=false
     depends_on:
       nacos:
+        condition: service_healthy
+      aiot-data-parser:
         condition: service_healthy
     networks:
       - aiot-net
@@ -266,11 +281,15 @@ services:
       - NACOS_CONFIG_GROUP=${NACOS_CONFIG_GROUP:-DEFAULT_GROUP}
       - NACOS_USERNAME=${NACOS_USERNAME:-}
       - NACOS_PASSWORD=${NACOS_PASSWORD:-}
+      - REDIS_HOST=aiot-redis
+      - AIOT_INTERNAL_TOKEN=${AIOT_INTERNAL_TOKEN}
       - SPRING_AUTOCONFIGURE_EXCLUDE=org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration,org.mybatis.spring.boot.autoconfigure.MybatisAutoConfiguration
       - SPRING_CLOUD_NACOS_DISCOVERY_REGISTER_ENABLED=false
       - SPRING_CLOUD_SERVICE_REGISTRY_AUTO_REGISTRATION_ENABLED=false
     depends_on:
       nacos:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     networks:
       - aiot-net
@@ -317,6 +336,8 @@ services:
       mysql:
         condition: service_healthy
       redis:
+        condition: service_healthy
+      emqx:
         condition: service_healthy
       aiot-home-service:
         condition: service_healthy
@@ -369,3 +390,107 @@ services:
       timeout: 10s
       retries: 3
       start_period: 40s
+
+  prometheus:
+    image: prom/prometheus:v2.54.1
+    container_name: aiot-prometheus
+    restart: unless-stopped
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --web.enable-lifecycle
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./monitoring/prometheus/alerts:/etc/prometheus/alerts:ro
+      - prometheus-data:/prometheus
+    networks:
+      - aiot-net
+    depends_on:
+      aiot-gateway:
+        condition: service_started
+      aiot-auth-service:
+        condition: service_started
+      aiot-device-service:
+        condition: service_started
+      aiot-home-service:
+        condition: service_started
+      aiot-rule-engine:
+        condition: service_started
+      aiot-shadow-service:
+        condition: service_started
+      aiot-mqtt-adapter:
+        condition: service_started
+      aiot-data-parser:
+        condition: service_started
+
+  loki:
+    image: grafana/loki:3.1.1
+    container_name: aiot-loki
+    restart: unless-stopped
+    command:
+      - -config.file=/etc/loki/loki.yml
+    ports:
+      - "3100:3100"
+    volumes:
+      - ./monitoring/loki/loki.yml:/etc/loki/loki.yml:ro
+      - loki-data:/loki
+    networks:
+      - aiot-net
+
+  promtail:
+    image: grafana/promtail:3.1.1
+    container_name: aiot-promtail
+    restart: unless-stopped
+    command:
+      - -config.file=/etc/promtail/promtail.yml
+    volumes:
+      - ./monitoring/promtail/promtail.yml:/etc/promtail/promtail.yml:ro
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - promtail-positions:/positions
+    depends_on:
+      loki:
+        condition: service_started
+    networks:
+      - aiot-net
+
+  tempo:
+    image: grafana/tempo:2.6.1
+    container_name: aiot-tempo
+    restart: unless-stopped
+    command:
+      - -config.file=/etc/tempo/tempo.yml
+    ports:
+      - "3200:3200"
+      - "4317:4317"
+      - "4318:4318"
+    volumes:
+      - ./monitoring/tempo/tempo.yml:/etc/tempo/tempo.yml:ro
+      - tempo-data:/var/tempo
+    networks:
+      - aiot-net
+
+  grafana:
+    image: grafana/grafana:11.2.0
+    container_name: aiot-grafana
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_USER=${GRAFANA_ADMIN_USER:-admin}
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:-admin}
+      - GF_USERS_ALLOW_SIGN_UP=false
+    volumes:
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - grafana-data:/var/lib/grafana
+    depends_on:
+      prometheus:
+        condition: service_started
+      loki:
+        condition: service_started
+      tempo:
+        condition: service_started
+    networks:
+      - aiot-net

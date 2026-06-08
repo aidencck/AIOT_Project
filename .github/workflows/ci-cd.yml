@@ -14,6 +14,8 @@ env:
   REGISTRY: ghcr.io
   # IMAGE_NAME default value is username/repository. Adjust if necessary.
   IMAGE_NAME: ${{ github.repository }}
+  COVERAGE_MIN_LINE: "0.60"
+  COVERAGE_MIN_BRANCH: "0.40"
 
 jobs:
   detect-changes:
@@ -38,7 +40,6 @@ jobs:
               - '.github/workflows/ci-cd.yml'
               - 'scripts/**'
               - 'aiot-common/**'
-              - 'aiot-data-parser/**'
             aiot_gateway:
               - 'aiot-gateway/**'
             aiot_auth_service:
@@ -53,6 +54,8 @@ jobs:
               - 'aiot-rule-engine/**'
             aiot_mqtt_adapter:
               - 'aiot-mqtt-adapter/**'
+            aiot_data_parser:
+              - 'aiot-data-parser/**'
 
       - name: Build service matrix
         id: select
@@ -65,6 +68,7 @@ jobs:
           SHADOW_CHANGED: ${{ steps.filter.outputs.aiot_shadow_service }}
           RULE_CHANGED: ${{ steps.filter.outputs.aiot_rule_engine }}
           MQTT_CHANGED: ${{ steps.filter.outputs.aiot_mqtt_adapter }}
+          DATA_PARSER_CHANGED: ${{ steps.filter.outputs.aiot_data_parser }}
         run: |
           python - <<'PY'
           import json
@@ -78,6 +82,7 @@ jobs:
               "aiot-shadow-service",
               "aiot-rule-engine",
               "aiot-mqtt-adapter",
+              "aiot-data-parser",
           ]
 
           if os.getenv("SHARED_CHANGED") == "true":
@@ -91,6 +96,7 @@ jobs:
                   "aiot-shadow-service": os.getenv("SHADOW_CHANGED"),
                   "aiot-rule-engine": os.getenv("RULE_CHANGED"),
                   "aiot-mqtt-adapter": os.getenv("MQTT_CHANGED"),
+                  "aiot-data-parser": os.getenv("DATA_PARSER_CHANGED"),
               }
               selected = [svc for svc, changed in changed_flags.items() if changed == "true"]
 
@@ -201,20 +207,23 @@ jobs:
           import xml.etree.ElementTree as ET
 
           modules = [m.strip() for m in os.getenv("MODULES", "").split(",") if m.strip()]
-          min_line = 0.60
-          min_branch = 0.40
+          min_line = float(os.getenv("COVERAGE_MIN_LINE", "0.40"))
+          min_branch = float(os.getenv("COVERAGE_MIN_BRANCH", "0.20"))
 
           reports = []
           for module in modules:
               report = pathlib.Path(module) / "target/site/jacoco/jacoco.xml"
               if report.exists():
                   reports.append((module, report))
+              else:
+                  failed.append((module, "missing jacoco.xml"))
 
-          if not reports:
-              print("Coverage hard gate failed: no jacoco report found for changed modules.")
+          if failed:
+              print("Coverage hard gate failed:")
+              for module, reason in failed:
+                  print(f" - {module}: {reason}")
               sys.exit(1)
 
-          failed = []
           for module, report in reports:
               root = ET.parse(report).getroot()
               counters = {c.attrib["type"]: c.attrib for c in root.findall("counter")}
@@ -243,6 +252,8 @@ jobs:
           PY
         env:
           MODULES: ${{ needs.detect-changes.outputs.maven_modules }}
+          COVERAGE_MIN_LINE: ${{ env.COVERAGE_MIN_LINE }}
+          COVERAGE_MIN_BRANCH: ${{ env.COVERAGE_MIN_BRANCH }}
 
       # 2. 收集测试报告 (Collect Test Reports)
       - name: Upload test results

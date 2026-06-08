@@ -19,7 +19,7 @@
 | --- | --- | --- | --- |
 | EPIC-AIN-01 | 事件中心 | 建立统一 `DeviceEvent` 模型与事件接入 | [`ai-native-m0-blueprint.md`](ai-native-m0-blueprint.md) |
 | EPIC-AIN-02 | 规则中心 | 建立规则定义、执行、预览与命中日志 | [`ai-native-m0-blueprint.md`](ai-native-m0-blueprint.md) |
-| EPIC-AIN-03 | 知识中心 | 建立知识切片、索引与检索能力 | [`../product/AIoT_AI_Native_Product_Roadmap.md`](../product/AIoT_AI_Native_Product_Roadmap.md) |
+| EPIC-AIN-03 | 知识中心 | 建立知识切片、索引与检索能力 | [`product/AIoT_AI_Native_Product_Roadmap`](product/AIoT_AI_Native_Product_Roadmap) |
 | EPIC-AIN-04 | Copilot | 建立设备诊断问答与规则草案生成 | [`ai-native-overview.md`](ai-native-overview.md) |
 | EPIC-AIN-05 | 审批执行 | 建立审批流、执行记录、审计追踪 | [`ai-native-m0-blueprint.md`](ai-native-m0-blueprint.md) |
 
@@ -118,7 +118,7 @@
 5. 为每个 Issue 关联 Wiki 文档链接
 
 ## 10. 自动化脚本
-- 远程同步脚本：[`../../scripts/sync_ai_native_m0_github_project.py`](../../scripts/sync_ai_native_m0_github_project.py)
+- 远程同步脚本：[`sync_ai_native_m0_github_project.py`](https://github.com/aidencck/AIOT_Project/blob/master/scripts/sync_ai_native_m0_github_project.py)
 - 默认行为：创建/复用 `AI-native M0` Milestone、创建标签、同步 Epic 与 Sprint Story
 - 可选参数：
 - `GITHUB_REPO`：默认 `aidencck/AIOT_Project`

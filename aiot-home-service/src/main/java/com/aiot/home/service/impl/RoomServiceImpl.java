@@ -11,6 +11,7 @@ import com.aiot.home.service.RoomService;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 import java.util.stream.Collectors;
@@ -25,6 +26,7 @@ public class RoomServiceImpl implements RoomService {
     private HomeDeviceCompensationService homeDeviceCompensationService;
 
     @Override
+    @Transactional(rollbackFor = Exception.class)
     public String createRoom(RoomCreateReq req, String userId) {
         // 注解已在 Controller 层拦截并鉴权 (Owner/Admin)
         Room room = new Room();
@@ -52,6 +54,7 @@ public class RoomServiceImpl implements RoomService {
     }
 
     @Override
+    @Transactional(rollbackFor = Exception.class)
     public void deleteRoom(String roomId, String homeId, String userId) {
         Room room = roomRepository.selectById(roomId);
         if (room == null) {

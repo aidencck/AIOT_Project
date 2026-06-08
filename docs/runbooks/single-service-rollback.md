@@ -99,3 +99,11 @@
   --service SERVICE_NAME \
   --timeout 180
 ```
+
+## 10. 结构化留痕说明（新增）
+- 回滚脚本已支持 `--trace-id`、`--operator`、`--output-dir` 参数，可输出结构化留痕文件。
+- 默认输出目录：`/Users/aiden/Projects/AIOT-java/scripts/.release_state/audit`
+- 关键输出：
+  - `rollback-<trace_id>.jsonl`：阶段时间线（init / resolve_target / rollback_pull / rollback_up / verify / finalize）
+  - `rollback-<trace_id>.summary.json`：回滚摘要（结果、耗时、目标版本、当前镜像、操作人）
+- 建议在事件系统中附上上述两类文件路径，确保回滚审计可追踪、可复盘。

@@ -33,6 +33,12 @@
 3. **故障注入阶段**
    - 按选定触发条件注入异常并观察告警触发。
    - 记录告警首次触发时间。
+   - 可选脚本：
+     ```bash
+     /Users/aiden/Projects/AIOT-java/scripts/inject_fault.sh \
+       --service SERVICE_NAME \
+       --mode stop-container
+     ```
 4. **回滚阶段**
    - 执行回滚脚本或工作流：
      ```bash
@@ -47,6 +53,15 @@
 6. **收尾阶段**
    - 恢复常规流量策略。
    - 汇总证据、登记问题与改进项。
+
+### 3.1 一键演练（推荐）
+```bash
+/Users/aiden/Projects/AIOT-java/scripts/run_release_rollback_drill.sh \
+  --service SERVICE_NAME \
+  --tag DRILL_RELEASE_TAG \
+  --fault-mode stop-container \
+  --health-timeout 180
+```
 
 ## 4. 验证清单
 - [ ] 告警在预期时间内触发（目标：≤5 分钟）。
@@ -91,6 +106,7 @@
 - **指标可达标**：告警触达、回滚时效、业务恢复满足目标阈值。
 - **证据可追溯**：发布、回滚、验证全链路证据完整。
 - **改进可闭环**：演练问题均形成行动项并有明确 owner 与截止时间。
+- **结构化留痕**：`timeline-<trace_id>.jsonl` 与 `report-<trace_id>.json` 均已生成并归档。
 
 ## 8. 复盘结论（填写区）
 - **总体结论**：

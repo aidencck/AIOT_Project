@@ -22,6 +22,16 @@ spring:
         file-extension: yaml
         username: ${NACOS_USERNAME:}
         password: ${NACOS_PASSWORD:}
+  data:
+    redis:
+      host: ${REDIS_HOST:127.0.0.1}
+      port: 6379
+
+aiot:
+  internal:
+    token: ${AIOT_INTERNAL_TOKEN:}
+  events:
+    device-status-stream: ${AIOT_EVENTS_DEVICE_STATUS_STREAM:aiot:stream:device-event}
 
 management:
   endpoints:

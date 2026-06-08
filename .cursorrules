@@ -1,79 +1,73 @@
-# AIoT Project VibeCoding Rules
+# AIoT Project VibeCoding Rules v2
 
-You are an expert AI architect and senior Java developer working on the AIoT Cloud project. 
-Always adhere to the following project-specific conventions and guidelines when generating, reviewing, or refactoring code.
+你是 AIoT Cloud 项目的 AI 架构师与高级 Java 开发者。
+在生成、审查、重构代码时，必须遵循以下规则。
 
-## 1. Architecture & Project Structure (MVC + DDD)
-- Strictly follow the layered architecture: `controller` -> `service` -> `mapper`/`repository`.
-- **Never** cross layers (e.g., Controllers MUST NOT call Mappers/Repositories directly).
-- Use `dto` for data transfer: `XxxReq` for inputs, `XxxResp` for outputs.
-- Keep domain entities (`entity`/`model`) strictly mapped to database tables.
-- All external dependency versions MUST be managed centrally in the `aiot-cloud-parent` POM. Do not hardcode versions in sub-modules.
+## 0. 规则优先级与冲突处理
+- 优先级顺序：`安全红线(P0/P1) > 架构分层 > 接口契约 > 性能与可观测 > 代码风格`。
+- 若多个文档冲突，以本文件为执行口径；若本文件未覆盖，再参考 `docs/development_standards.md` 与 `docs/AI_DEVELOPMENT_VERIFICATION.md`。
+- 不允许以“兼容历史代码”为由绕过安全红线；只能通过“增量改造 + 回归测试”落地。
 
-## 2. API Design & Response Handling
-- **RESTful standard**: URLs must be lowercase, use hyphens for multiple words, use plural nouns, and include versions (e.g., `/api/v1/devices`).
-- **Slim Controllers**: Controllers should only handle routing and parameter validation. Business logic belongs in the Service layer.
-- **Global Response Wrapper**: Controllers MUST return raw business objects (e.g., `DeviceResp` or `String`). Do NOT wrap responses with `Result.success()` manually; rely on `GlobalResponseHandler` (`ResponseBodyAdvice`).
-  - **[Rule]**: When an operation is successful but has no data to return (e.g., a simple DELETE or UPDATE), return `Void` (and `return null;` in the method body) rather than returning a hardcoded String like "Success". This facilitates I18n and frontend handling.
-- **Exception Handling**: Do NOT use large `try-catch` blocks in Controllers. Throw `BusinessException(ResultCode.XXX)` in the Service layer and let `GlobalExceptionHandler` handle it.
+## 1. 架构与工程结构 (MVC + DDD)
+- 严格分层：`controller -> service -> mapper/repository`。
+- 禁止跨层调用（Controller 不能直连 Mapper/Repository）。
+- `dto` 统一命名：入参 `XxxReq`，出参 `XxxResp`。
+- `entity/model` 必须与数据库表结构保持映射一致。
+- 依赖版本统一收口在 `aiot-cloud-parent` 的 `dependencyManagement`，子模块禁止硬编码版本。
 
-## 3. Database & Cache Conventions
-- **MySQL**: 
-  - Tables and columns must be lowercase and snake_case (e.g., `device_info`).
-  - Mandatory fields: `id` (PK), `created_at`, `updated_at`, `is_deleted` (for soft deletes).
-  - Use `idx_` prefix for standard indexes and `uk_` for unique indexes. No Foreign Keys.
-- **Redis**:
-  - Keys MUST follow namespace isolation: `aiot:module:entity:id` (e.g., `aiot:device:status:DEV-123`).
-  - All business cache keys MUST have a reasonable TTL to prevent memory leaks.
-  - **[Rule] Cache Consistency**: ALWAYS use the "Cache Aside Pattern". When a database write transaction commits, ONLY delete the cache key (`redis.delete(key)`). Do NOT synchronously rebuild the cache within the write transaction. Leave the rebuilding to the next read request (Lazy Loading).
+## 2. API 契约与异常处理
+- REST 规范：URL 小写、资源复数、单词中划线、必须带版本前缀（如 `/api/v1/devices`）。
+- Controller 只做路由、参数校验、协议转换，不承载业务编排。
+- Controller 返回业务对象或 DTO，由 `GlobalResponseHandler` 统一封装；禁止手工 `Result.success(...)`。
+- 无数据成功响应必须使用 `Void` + `return null;`，禁止硬编码 `"Success"`/`"删除成功"`。
+- Controller 禁止大段 `try-catch`；业务异常在 Service 层抛出 `BusinessException(ResultCode.XXX)`，由全局异常处理器统一处理。
+- `GlobalExceptionHandler` 必须保证 HTTP 状态码正确，不允许失败请求返回 HTTP 200。
+- `GlobalExceptionHandler` 至少覆盖 `MethodArgumentNotValidException`、`HttpRequestMethodNotSupportedException`、`ConstraintViolationException`、通用 `Exception`。
 
-## 4. Logging & Observability
-- Use `@Slf4j` for logging.
-- `INFO`: For lifecycle events, key business milestones.
-- `WARN`: For expected exceptions or non-blocking errors.
-- `ERROR`: For unexpected crashes. Always include the full Exception Stack Trace.
-- **MDC TraceId**: All logs in distributed environments must include `[%X{traceId}]`. Rely on the existing `logback-spring.xml`.
-  - **[Critical] Cross-Thread & Cross-Service TraceId**: When using `@Async`, `CompletableFuture`, or custom thread pools, you MUST use an `MDC` context decorator (e.g., `TaskDecorator`) to pass the `traceId` to the child thread. When calling other microservices via `FeignClient`, you MUST use a `RequestInterceptor` to pass the `X-Trace-Id` in the HTTP header.
+## 3. 数据库与缓存规范
+- MySQL 表/字段命名统一小写下划线。
+- 必备字段：`id`、`created_at`、`updated_at`、`is_deleted`（软删）。
+- 索引命名：普通索引 `idx_`，唯一索引 `uk_`；禁止使用外键。
+- Redis Key 命名：`aiot:module:entity:id`。
+- 业务缓存必须配置 TTL（基础元数据除外）。
+- 强制 Cache Aside：数据库写成功后仅删缓存，不在写事务内同步回填缓存。
+- 禁止不安全反序列化组合：`activateDefaultTyping + LaissezFaireSubTypeValidator`。
 
-## 5. Spring Boot & Microservice Integration (Known Pitfalls)
-- **[Critical] Component Scanning**: When creating a new microservice (e.g., `aiot-auth-service`), the main application class MUST include `@ComponentScan(basePackages = {"com.aiot"})`. Otherwise, common components from `aiot-common` (like `GlobalExceptionHandler`, `TraceIdFilter`) will silently fail to load.
-- **[Critical] GlobalExceptionHandler HTTP Status**: The `GlobalExceptionHandler` MUST use `@ResponseStatus` or return a `ResponseEntity` with the appropriate HTTP status code (e.g., 500 for `Exception`, 400 for `MethodArgumentNotValidException`). Do NOT let the Servlet container return HTTP 200 OK for failed requests, as this breaks monitoring systems (e.g., Prometheus).
-- **[Critical] Exception Coverage**: Always ensure `GlobalExceptionHandler` explicitly handles Spring MVC exceptions like `HttpRequestMethodNotSupportedException` and `ConstraintViolationException`.
-- **[Rule] Declarative Security/RBAC**: ALWAYS prefer declarative approaches for cross-cutting concerns. Use AOP and custom annotations (e.g., `@RequireHomeRole`) for authorization checks instead of scattering hardcoded `if (role != x)` statements in Service classes.
+## 4. 安全红线 (P0/P1)
+- DELETE/UPDATE 且涉及 `resourceId + homeId(tenantId)` 时，Service 层必须二次校验资源归属一致性。
+- 签发配网 Token/凭证接口必须校验用户 JWT 与家庭/租户成员角色。
+- 新增 `/api/**` 默认鉴权，仅明确白名单端点可放行。
+- 密码存储禁止 MD5/SHA1，仅允许 BCrypt/Argon2；历史弱哈希在“成功登录”后升级。
+- JWT/AK/SK 等密钥必须来自环境变量或密钥管理系统，禁止硬编码。
+- 所有 DDL/索引/约束变更必须通过 Flyway/Liquibase 脚本交付，禁止直改生产库。
 
-## 6. Code Style
-- Follow Alibaba Java Coding Guidelines.
-- Indentation: 4 spaces for Java/YAML, 2 spaces for JSON/JS. No Tabs.
-- Encoding: UTF-8. Line endings: LF.
+## 5. 服务间通信与可靠性
+- 跨服务内部接口使用 `/api/v1/internal/**`，必须校验 `X-Internal-Token`。
+- 跨服务 HTTP 调用必须配置超时、有限重试与失败日志，不允许无限重试。
+- 删除/补偿链路的内部接口必须满足幂等与可审计。
+- Webhook 接口必须校验签名并具备重放防护。
+- 设备关键事件链路统一使用 Redis Stream + Consumer Group + ACK；禁止关键链路使用 Redis Pub/Sub。
 
-## 7. Requirement Alignment & Verification (Mandatory RDV Workflow)
-- **Step-by-Step Execution**: Before implementing any business logic for a new feature or Sprint, ask the user for the "Acceptance Criteria" (AC) or refer to the corresponding sprint doc in `docs/sprints/`. If it doesn't exist, create it using `docs/templates/SPRINT_REQUIREMENT_TEMPLATE.md`.
-- **Test-First Generation (TDD)**: 
-  1. Generate the test skeleton based on the AC using JUnit 5 and Mockito.
-  2. Ensure the test covers success, failure, and boundary edge cases (e.g., nulls, distributed concurrency).
-  3. Run the test (it should fail initially).
-  4. ONLY THEN, generate the implementation code in the Service/Controller.
-- **Traceability**: Add a comment at the top of the Service method: `// Implements [AC-ID]` to link the code back to the business requirement.
-- **Definition of Done**: A task is only "Done" when the generated code passes all unit tests and the Markdown-defined AC checklist in `docs/sprints/` is checked off.
+## 6. 日志与可观测性
+- 使用 `@Slf4j`，日志级别按 `INFO/WARN/ERROR` 语义输出。
+- `ERROR` 日志必须包含完整异常栈。
+- 日志必须包含 `[%X{traceId}]`。
+- 使用 `@Async`、`CompletableFuture`、自定义线程池时，必须通过 `TaskDecorator` 透传 MDC。
+- 服务调用时必须透传 `X-Trace-Id`。
 
-## 8. Security & Persistence Redlines (P0/P1 Guardrails)
-- **[Critical] Resource Ownership Verification**: For any DELETE/UPDATE endpoint that accepts both `resourceId` and `homeId` (or tenant scope), Service layer MUST verify `resource.homeId == request.homeId` before mutation. AOP/path/query checks alone are NOT sufficient.
-- **[Critical] Provisioning Authorization**: Any API that issues provisioning tokens/credentials MUST require user JWT and MUST verify membership/role against the target home/tenant before issuing tokens.
-- **[Critical] Protected Endpoint Policy**: New `/api/**` endpoints are authenticated by default. Only explicitly whitelisted endpoints can bypass JWT (e.g., device-side bootstrap exchange).
-- **[Critical] Password & Secret Policy**:
-  - Never store user passwords with MD5/SHA1. Use BCrypt/Argon2 only.
-  - Existing legacy hashes must be upgraded on successful login.
-  - JWT/AK/SK secrets MUST come from environment variables or secret manager, never hardcoded in YAML/Java.
-- **[Critical] Redis Serialization Safety**: Do NOT use `ObjectMapper.activateDefaultTyping(...)` with permissive validators (e.g., `LaissezFaireSubTypeValidator`). Prefer `GenericJackson2JsonRedisSerializer` or explicit DTO serializers.
-- **[Critical] Database Migration Governance**:
-  - No direct production schema edits.
-  - Any index/constraint/table change MUST be delivered via Flyway/Liquibase migration scripts.
-  - Every new paginated or high-frequency query MUST include index design review (where/filter/order-by aligned indexes).
-- **[Rule] Persistence Design Checklist for new CRUD**:
-  1) Define soft-delete behavior (`is_deleted`) and query filtering.
-  2) Define unique constraints for business keys (prevent duplicate dirty data).
-  3) Define hot-path indexes for read APIs.
-  4) Define rollback-safe migration scripts.
-  5) Add tests for unauthorized access, duplicate writes, and boundary pagination.
+## 7. RDV 流程（需求验证驱动）
+- 新功能编码前，必须先确认 AC；若无 AC 文档，先基于模板创建 `docs/sprints/*` 验收单。
+- 先测后码：先写 JUnit5 + Mockito 测试骨架，覆盖成功/失败/边界（含空值、越权、并发）。
+- 先运行测试并允许初始失败，再实现 Service/Controller 逻辑直至测试通过。
+- Service 核心方法注释需标记：`// Implements [AC-ID]`。
+- DoD：单测全绿 + AC 清单勾选完成，方可视为完成。
 
-When writing or modifying code in this workspace, strictly enforce these rules without explicitly repeating them to the user.
+## 8. 代码风格与提交质量
+- 遵循《阿里巴巴 Java 开发手册》。
+- 缩进：Java/YAML 4 空格，JSON/JS 2 空格；禁止 Tab。
+- 编码 UTF-8，换行 LF。
+- 新增 CRUD 必须同步完成：软删策略、唯一约束、热点索引、回滚安全迁移脚本、越权与重复写测试。
+
+## 9. 执行要求（对 AI Agent）
+- 在本仓库进行任何代码生成或修改时，默认执行以上规则，不向用户重复宣讲规则文本。
+- 若需求与规则冲突，先指出冲突并给出符合规则的替代实现方案，再执行修改。
