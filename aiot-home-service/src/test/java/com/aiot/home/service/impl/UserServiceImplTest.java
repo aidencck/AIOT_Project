@@ -6,7 +6,7 @@ import com.aiot.home.dto.LoginResp;
 import com.aiot.home.dto.RegisterReq;
 import com.aiot.home.entity.User;
 import com.aiot.home.repository.UserRepository;
-import com.aiot.home.utils.JwtUtils;
+import com.aiot.common.security.jwt.AiotJwtService;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -34,7 +34,7 @@ class UserServiceImplTest {
     private UserRepository userRepository;
 
     @Mock
-    private JwtUtils jwtUtils;
+    private AiotJwtService jwtService;
 
     @InjectMocks
     private UserServiceImpl userService;
@@ -52,7 +52,7 @@ class UserServiceImplTest {
         user.setPassword(DigestUtils.md5DigestAsHex(req.getPassword().getBytes(StandardCharsets.UTF_8)));
 
         when(userRepository.selectOne(any(LambdaQueryWrapper.class))).thenReturn(user);
-        when(jwtUtils.generateToken("u-1", req.getPhone())).thenReturn("mock-token");
+        when(jwtService.issueUserToken("u-1", req.getPhone())).thenReturn("mock-token");
 
         LoginResp resp = userService.login(req);
 

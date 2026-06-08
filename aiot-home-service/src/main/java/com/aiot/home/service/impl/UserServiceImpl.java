@@ -1,6 +1,7 @@
 package com.aiot.home.service.impl;
 
 import com.aiot.common.api.ResultCode;
+import com.aiot.common.security.jwt.AiotJwtService;
 import com.aiot.common.exception.BusinessException;
 import com.aiot.home.dto.LoginReq;
 import com.aiot.home.dto.LoginResp;
@@ -8,11 +9,11 @@ import com.aiot.home.dto.RegisterReq;
 import com.aiot.home.entity.User;
 import com.aiot.home.repository.UserRepository;
 import com.aiot.home.service.UserService;
-import com.aiot.home.utils.JwtUtils;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.DigestUtils;
 
 import java.nio.charset.StandardCharsets;
@@ -26,9 +27,10 @@ public class UserServiceImpl implements UserService {
     private UserRepository userRepository;
 
     @Autowired
-    private JwtUtils jwtUtils;
+    private AiotJwtService jwtService;
 
     @Override
+    @Transactional(rollbackFor = Exception.class)
     public LoginResp login(LoginReq req) {
         // 查找用户
         LambdaQueryWrapper<User> wrapper = new LambdaQueryWrapper<>();
@@ -58,7 +60,7 @@ public class UserServiceImpl implements UserService {
         }
 
         // 生成 Token
-        String token = jwtUtils.generateToken(user.getId(), user.getPhone());
+        String token = jwtService.issueUserToken(user.getId(), user.getPhone());
 
         LoginResp resp = new LoginResp();
         resp.setToken(token);
@@ -68,6 +70,7 @@ public class UserServiceImpl implements UserService {
     }
 
     @Override
+    @Transactional(rollbackFor = Exception.class)
     public void register(RegisterReq req) {
         // 检查手机号是否已注册
         LambdaQueryWrapper<User> wrapper = new LambdaQueryWrapper<>();
