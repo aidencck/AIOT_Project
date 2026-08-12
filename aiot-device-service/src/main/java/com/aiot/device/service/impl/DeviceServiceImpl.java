@@ -13,10 +13,13 @@ import com.aiot.device.repository.DeviceCredentialRepository;
 import com.aiot.device.repository.DeviceRepository;
 import com.aiot.device.repository.ProductRepository;
 import com.aiot.device.model.DeviceStatus;
+import com.aiot.device.security.HomePermissionService;
 import com.aiot.device.service.DeviceService;
+import com.aiot.common.dto.home.HomeRoomRelationCheckResp;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.baomidou.mybatisplus.core.toolkit.IdWorker;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
@@ -41,44 +44,35 @@ public class DeviceServiceImpl implements DeviceService {
     @Autowired
     private DeviceCredentialRepository credentialRepository;
 
+    @Autowired
+    private HomePermissionService homePermissionService;
+
     @Override
     @Transactional(rollbackFor = Exception.class)
     public DeviceResp createDevice(DeviceReq req) {
-        // 1. Validate Product
-        LambdaQueryWrapper<Product> pw = new LambdaQueryWrapper<>();
-        pw.eq(Product::getProductKey, req.getProductKey());
-        Product product = productRepository.selectOne(pw);
-        if (product == null) {
-            throw new BusinessException(ResultCode.VALIDATE_FAILED, "产品不存在");
+        Product product = resolveProduct(req.getProductKey());
+        String roomId = normalizeOptionalId(req.getRoomId());
+        String gatewayId = normalizeOptionalId(req.getGatewayId());
+
+        validateHomeRoomRelation(req.getHomeId(), roomId);
+        validateGatewayBinding(product, req.getHomeId(), gatewayId, null);
+        Device existed = findSingleDevice(req.getProductKey(), req.getDeviceName());
+        if (existed != null) {
+            return handleExistingDeviceOnCreate(existed, req, roomId, gatewayId);
         }
 
-        // 2. Validate Gateway Topology if it's a sub-device (nodeType == 3)
-        if (product.getNodeType() == 3) {
-            if (!StringUtils.hasText(req.getGatewayId())) {
-                throw new BusinessException(ResultCode.VALIDATE_FAILED, "子设备必须绑定网关");
-            }
-            Device gateway = deviceRepository.selectById(req.getGatewayId());
-            if (gateway == null) {
-                throw new BusinessException(ResultCode.VALIDATE_FAILED, "网关设备不存在");
-            }
-            
-            // Validate if gateway is indeed a gateway
-            LambdaQueryWrapper<Product> gwPw = new LambdaQueryWrapper<>();
-            gwPw.eq(Product::getProductKey, gateway.getProductKey());
-            Product gatewayProduct = productRepository.selectOne(gwPw);
-            if (gatewayProduct == null || gatewayProduct.getNodeType() != 2) {
-                throw new BusinessException(ResultCode.VALIDATE_FAILED, "关联的设备不是网关");
-            }
-        }
-
-        // 3. Create Device
         Device device = new Device();
+        String generatedId = IdWorker.getIdStr();
+        device.setId(generatedId);
+        device.setGlobalDeviceId(generatedId);
         device.setDeviceName(req.getDeviceName());
         device.setProductKey(req.getProductKey());
+        device.setDeviceSn(normalizeOptionalId(req.getDeviceSn()));
+        device.setAuthIdentity(resolveAuthIdentity(req.getAuthIdentity(), generatedId));
         device.setStatus(0); // 未激活
         device.setHomeId(req.getHomeId());
-        device.setRoomId(req.getRoomId());
-        device.setGatewayId(req.getGatewayId());
+        device.setRoomId(roomId);
+        device.setGatewayId(gatewayId);
         device.setFirmwareVersion(req.getFirmwareVersion());
         device.setLastHeartbeatTime(LocalDateTime.now());
         deviceRepository.insert(device);
@@ -94,6 +88,22 @@ public class DeviceServiceImpl implements DeviceService {
         DeviceResp resp = convertToResp(device);
         resp.setDeviceSecret(deviceSecret);
         return resp;
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public DeviceResp claimUnboundDevice(DeviceReq req) {
+        Product product = resolveProduct(req.getProductKey());
+        String roomId = normalizeOptionalId(req.getRoomId());
+        String gatewayId = normalizeOptionalId(req.getGatewayId());
+        validateHomeRoomRelation(req.getHomeId(), roomId);
+        validateGatewayBinding(product, req.getHomeId(), gatewayId, null);
+
+        Device existed = findSingleDevice(req.getProductKey(), req.getDeviceName());
+        if (existed == null || StringUtils.hasText(existed.getHomeId())) {
+            throw new BusinessException(ResultCode.FORBIDDEN, "设备不可再次认领");
+        }
+        return claimExistingDevice(existed, req, roomId, gatewayId);
     }
 
     @Override
@@ -137,15 +147,26 @@ public class DeviceServiceImpl implements DeviceService {
         if (device == null) {
             throw new BusinessException(ResultCode.VALIDATE_FAILED, "设备不存在");
         }
+        Product product = resolveProduct(device.getProductKey());
 
         if (StringUtils.hasText(req.getDeviceName())) {
             device.setDeviceName(req.getDeviceName());
         }
+        if (req.getDeviceSn() != null) {
+            device.setDeviceSn(normalizeOptionalId(req.getDeviceSn()));
+        }
+        if (req.getAuthIdentity() != null) {
+            device.setAuthIdentity(resolveAuthIdentity(req.getAuthIdentity(), device.getId()));
+        }
         if (req.getRoomId() != null) {
-            device.setRoomId(req.getRoomId());
+            String roomId = normalizeOptionalId(req.getRoomId());
+            validateHomeRoomRelation(device.getHomeId(), roomId);
+            device.setRoomId(roomId);
         }
         if (req.getGatewayId() != null) {
-            device.setGatewayId(req.getGatewayId());
+            String gatewayId = normalizeOptionalId(req.getGatewayId());
+            validateGatewayBinding(product, device.getHomeId(), gatewayId, deviceId);
+            device.setGatewayId(gatewayId);
         }
         if (req.getFirmwareVersion() != null) {
             device.setFirmwareVersion(req.getFirmwareVersion());
@@ -161,15 +182,7 @@ public class DeviceServiceImpl implements DeviceService {
         if (device == null) {
             return;
         }
-        
-        // Delete device
-        deviceRepository.deleteById(deviceId);
-        
-        // Delete credential
-        LambdaQueryWrapper<DeviceCredential> cw = new LambdaQueryWrapper<>();
-        cw.eq(DeviceCredential::getDeviceId, deviceId);
-        credentialRepository.delete(cw);
-        
+
         // If it's a gateway, we should probably unbind or delete sub-devices
         LambdaQueryWrapper<Device> subGw = new LambdaQueryWrapper<>();
         subGw.eq(Device::getGatewayId, deviceId);
@@ -177,6 +190,12 @@ public class DeviceServiceImpl implements DeviceService {
         if (!subDevices.isEmpty()) {
             throw new BusinessException(ResultCode.FORBIDDEN, "网关下仍存在子设备，禁止删除");
         }
+
+        deviceRepository.deleteById(deviceId);
+
+        LambdaQueryWrapper<DeviceCredential> cw = new LambdaQueryWrapper<>();
+        cw.eq(DeviceCredential::getDeviceId, deviceId);
+        credentialRepository.delete(cw);
     }
 
     @Override
@@ -215,6 +234,7 @@ public class DeviceServiceImpl implements DeviceService {
         for (Device device : devices) {
             device.setHomeId(null);
             device.setRoomId(null);
+            device.setGatewayId(null);
             deviceRepository.updateById(device);
             affected++;
         }
@@ -249,11 +269,137 @@ public class DeviceServiceImpl implements DeviceService {
         }
     }
 
+    private void validateHomeRoomRelation(String homeId, String roomId) {
+        HomeRoomRelationCheckResp relation = homePermissionService.checkHomeRoomRelation(homeId, roomId);
+        if (!Boolean.TRUE.equals(relation.getHomeExists())) {
+            throw new BusinessException(ResultCode.VALIDATE_FAILED, "家庭不存在");
+        }
+        if (StringUtils.hasText(roomId) && !Boolean.TRUE.equals(relation.getRoomExists())) {
+            throw new BusinessException(ResultCode.VALIDATE_FAILED, "房间不存在");
+        }
+        if (StringUtils.hasText(roomId) && !Boolean.TRUE.equals(relation.getRoomBelongsToHome())) {
+            throw new BusinessException(ResultCode.VALIDATE_FAILED, "房间不属于当前家庭");
+        }
+    }
+
+    private Device findSingleDevice(String productKey, String deviceName) {
+        LambdaQueryWrapper<Device> wrapper = new LambdaQueryWrapper<>();
+        wrapper.eq(Device::getProductKey, productKey)
+                .eq(Device::getDeviceName, deviceName);
+        List<Device> existedDevices = deviceRepository.selectList(wrapper);
+        if (existedDevices.isEmpty()) {
+            return null;
+        }
+        if (existedDevices.size() > 1) {
+            throw new BusinessException(ResultCode.FAILED, "设备唯一性被破坏，请联系管理员修复");
+        }
+        return existedDevices.get(0);
+    }
+
+    private DeviceResp handleExistingDeviceOnCreate(Device existed, DeviceReq req, String roomId, String gatewayId) {
+        if (req.getHomeId().equals(existed.getHomeId())) {
+            throw new BusinessException(ResultCode.VALIDATE_FAILED, "设备已存在");
+        }
+        if (!StringUtils.hasText(existed.getHomeId())) {
+            return claimExistingDevice(existed, req, roomId, gatewayId);
+        }
+        throw new BusinessException(ResultCode.FORBIDDEN, "设备已绑定其他家庭，禁止重复认领");
+    }
+
+    private DeviceResp claimExistingDevice(Device existed, DeviceReq req, String roomId, String gatewayId) {
+        if (!StringUtils.hasText(existed.getGlobalDeviceId())) {
+            existed.setGlobalDeviceId(existed.getId());
+        }
+        existed.setHomeId(req.getHomeId());
+        existed.setRoomId(roomId);
+        existed.setGatewayId(gatewayId);
+        if (req.getDeviceSn() != null) {
+            existed.setDeviceSn(normalizeOptionalId(req.getDeviceSn()));
+        }
+        if (req.getAuthIdentity() != null) {
+            existed.setAuthIdentity(resolveAuthIdentity(req.getAuthIdentity(), existed.getId()));
+        } else if (!StringUtils.hasText(existed.getAuthIdentity())) {
+            existed.setAuthIdentity(existed.getId());
+        }
+        if (StringUtils.hasText(req.getFirmwareVersion())) {
+            existed.setFirmwareVersion(req.getFirmwareVersion());
+        }
+        deviceRepository.updateById(existed);
+
+        DeviceCredential credential = loadCredential(existed.getId());
+        DeviceResp resp = convertToResp(existed);
+        resp.setDeviceSecret(credential.getDeviceSecret());
+        return resp;
+    }
+
+    private DeviceCredential loadCredential(String deviceId) {
+        LambdaQueryWrapper<DeviceCredential> cw = new LambdaQueryWrapper<>();
+        cw.eq(DeviceCredential::getDeviceId, deviceId);
+        DeviceCredential credential = credentialRepository.selectOne(cw);
+        if (credential == null) {
+            throw new BusinessException(ResultCode.FAILED, "设备凭证不存在，请联系管理员处理");
+        }
+        return credential;
+    }
+
+    private void validateGatewayBinding(Product product, String homeId, String gatewayId, String currentDeviceId) {
+        if (product.getNodeType() == null) {
+            throw new BusinessException(ResultCode.VALIDATE_FAILED, "产品节点类型缺失");
+        }
+        if (product.getNodeType() != 3) {
+            if (StringUtils.hasText(gatewayId)) {
+                throw new BusinessException(ResultCode.VALIDATE_FAILED, "仅子设备允许绑定网关");
+            }
+            return;
+        }
+        if (!StringUtils.hasText(gatewayId)) {
+            throw new BusinessException(ResultCode.VALIDATE_FAILED, "子设备必须绑定网关");
+        }
+        if (!StringUtils.hasText(homeId)) {
+            throw new BusinessException(ResultCode.VALIDATE_FAILED, "子设备必须归属家庭");
+        }
+        if (StringUtils.hasText(currentDeviceId) && currentDeviceId.equals(gatewayId)) {
+            throw new BusinessException(ResultCode.VALIDATE_FAILED, "设备不能绑定自己作为网关");
+        }
+        Device gateway = deviceRepository.selectById(gatewayId);
+        if (gateway == null) {
+            throw new BusinessException(ResultCode.VALIDATE_FAILED, "网关设备不存在");
+        }
+        if (!homeId.equals(gateway.getHomeId())) {
+            throw new BusinessException(ResultCode.VALIDATE_FAILED, "网关设备不属于当前家庭");
+        }
+        Product gatewayProduct = resolveProduct(gateway.getProductKey());
+        if (gatewayProduct.getNodeType() == null || gatewayProduct.getNodeType() != 2) {
+            throw new BusinessException(ResultCode.VALIDATE_FAILED, "关联的设备不是网关");
+        }
+    }
+
+    private Product resolveProduct(String productKey) {
+        LambdaQueryWrapper<Product> wrapper = new LambdaQueryWrapper<>();
+        wrapper.eq(Product::getProductKey, productKey);
+        Product product = productRepository.selectOne(wrapper);
+        if (product == null) {
+            throw new BusinessException(ResultCode.VALIDATE_FAILED, "产品不存在");
+        }
+        return product;
+    }
+
+    private String normalizeOptionalId(String value) {
+        return StringUtils.hasText(value) ? value : null;
+    }
+
+    private String resolveAuthIdentity(String authIdentity, String fallbackDeviceId) {
+        return StringUtils.hasText(authIdentity) ? authIdentity : fallbackDeviceId;
+    }
+
     private DeviceResp convertToResp(Device device) {
         DeviceResp resp = new DeviceResp();
         resp.setId(device.getId());
+        resp.setGlobalDeviceId(resolveGlobalDeviceId(device));
         resp.setDeviceName(device.getDeviceName());
         resp.setProductKey(device.getProductKey());
+        resp.setDeviceSn(device.getDeviceSn());
+        resp.setAuthIdentity(resolveAuthIdentity(device.getAuthIdentity(), device.getId()));
         resp.setStatus(device.getStatus());
         resp.setHomeId(device.getHomeId());
         resp.setRoomId(device.getRoomId());
@@ -261,5 +407,12 @@ public class DeviceServiceImpl implements DeviceService {
         resp.setFirmwareVersion(device.getFirmwareVersion());
         resp.setLastHeartbeatTime(device.getLastHeartbeatTime());
         return resp;
+    }
+
+    private String resolveGlobalDeviceId(Device device) {
+        if (device == null) {
+            return null;
+        }
+        return StringUtils.hasText(device.getGlobalDeviceId()) ? device.getGlobalDeviceId() : device.getId();
     }
 }

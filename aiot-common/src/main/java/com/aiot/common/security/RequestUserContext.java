@@ -24,15 +24,25 @@ public final class RequestUserContext {
 
     public static class UserInfo {
         private final String userId;
+        private final String globalUserId;
         private final String phone;
 
         public UserInfo(String userId, String phone) {
+            this(userId, userId, phone);
+        }
+
+        public UserInfo(String userId, String globalUserId, String phone) {
             this.userId = userId;
+            this.globalUserId = globalUserId;
             this.phone = phone;
         }
 
         public String getUserId() {
             return userId;
+        }
+
+        public String getGlobalUserId() {
+            return globalUserId == null || globalUserId.isBlank() ? userId : globalUserId;
         }
 
         public String getPhone() {

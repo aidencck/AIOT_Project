@@ -16,14 +16,15 @@ import reactor.core.publisher.Mono;
  * 将 Spring Security 鉴权后的用户信息，透传为下游服务认可的 Header。
  *
  * 保持旧行为：
- * - 去除伪造的 X-User-Id/X-User-Phone/X-Internal-Token
- * - 注入可信的 X-User-Id/X-User-Phone
+ * - 去除伪造的 X-User-Id/X-Global-User-Id/X-User-Phone/X-Internal-Token
+ * - 注入可信的 X-User-Id/X-Global-User-Id/X-User-Phone
  * - /api/v1/internal/** 额外注入 X-Internal-Token（如已配置）
  */
 @Component
 public class GatewayUserHeaderGlobalFilter implements GlobalFilter, Ordered {
 
     private static final String INTERNAL_USER_ID_HEADER = "X-User-Id";
+    private static final String INTERNAL_GLOBAL_USER_ID_HEADER = "X-Global-User-Id";
     private static final String INTERNAL_USER_PHONE_HEADER = "X-User-Phone";
     private static final String INTERNAL_TOKEN_HEADER = "X-Internal-Token";
 
@@ -43,12 +44,16 @@ public class GatewayUserHeaderGlobalFilter implements GlobalFilter, Ordered {
                     ServerWebExchange mutated = exchange.mutate()
                             .request(builder -> builder.headers(headers -> {
                                 headers.remove(INTERNAL_USER_ID_HEADER);
+                                headers.remove(INTERNAL_GLOBAL_USER_ID_HEADER);
                                 headers.remove(INTERNAL_USER_PHONE_HEADER);
                                 headers.remove(INTERNAL_TOKEN_HEADER);
 
                                 AiotJwtPrincipal principal = extractPrincipal(auth);
                                 if (principal != null && StringUtils.hasText(principal.userId())) {
                                     headers.set(INTERNAL_USER_ID_HEADER, principal.userId());
+                                }
+                                if (principal != null && StringUtils.hasText(principal.globalUserId())) {
+                                    headers.set(INTERNAL_GLOBAL_USER_ID_HEADER, principal.globalUserId());
                                 }
                                 if (principal != null && StringUtils.hasText(principal.phone())) {
                                     headers.set(INTERNAL_USER_PHONE_HEADER, principal.phone());
@@ -67,6 +72,7 @@ public class GatewayUserHeaderGlobalFilter implements GlobalFilter, Ordered {
                     ServerWebExchange mutated = exchange.mutate()
                             .request(builder -> builder.headers(headers -> {
                                 headers.remove(INTERNAL_USER_ID_HEADER);
+                                headers.remove(INTERNAL_GLOBAL_USER_ID_HEADER);
                                 headers.remove(INTERNAL_USER_PHONE_HEADER);
                                 headers.remove(INTERNAL_TOKEN_HEADER);
                                 if (path != null

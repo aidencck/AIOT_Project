@@ -19,9 +19,15 @@ public class Device {
     @TableId(type = IdType.ASSIGN_ID)
     private String id;
 
+    private String globalDeviceId;
+
     private String deviceName;
 
     private String productKey;
+
+    private String deviceSn;
+
+    private String authIdentity;
 
     /**
      * 设备状态：0-未激活，1-在线，2-离线

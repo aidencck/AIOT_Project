@@ -1,6 +1,7 @@
 -- 用户信息表
 CREATE TABLE IF NOT EXISTS `user_info` (
   `id` varchar(64) NOT NULL COMMENT '主键ID',
+  `global_user_id` varchar(64) NOT NULL COMMENT '全局用户ID',
   `phone` varchar(20) NOT NULL COMMENT '手机号',
   `password` varchar(128) NOT NULL COMMENT '密码(MD5)',
   `nickname` varchar(64) DEFAULT NULL COMMENT '昵称',
@@ -8,6 +9,7 @@ CREATE TABLE IF NOT EXISTS `user_info` (
   `update_time` datetime DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
   `is_deleted` tinyint(1) DEFAULT '0' COMMENT '逻辑删除标记',
   PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_global_user_id` (`global_user_id`),
   UNIQUE KEY `uk_phone` (`phone`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='用户信息表';
 
@@ -46,3 +48,19 @@ CREATE TABLE IF NOT EXISTS `home_member` (
   UNIQUE KEY `uk_home_user` (`home_id`,`user_id`),
   KEY `idx_user_id` (`user_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='家庭成员关联表';
+
+CREATE TABLE IF NOT EXISTS `home_delete_compensation_task` (
+  `id` varchar(64) NOT NULL COMMENT '主键ID',
+  `home_id` varchar(64) NOT NULL COMMENT '家庭ID',
+  `status` tinyint(1) NOT NULL COMMENT '状态: 1-PENDING, 2-PROCESSING, 3-SUCCESS, 4-FAILED',
+  `retry_count` int NOT NULL DEFAULT '0' COMMENT '重试次数',
+  `next_retry_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '下次重试时间',
+  `last_error` varchar(255) DEFAULT NULL COMMENT '最后一次错误信息',
+  `trace_id` varchar(64) DEFAULT NULL COMMENT '链路追踪ID',
+  `create_time` datetime DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+  `update_time` datetime DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+  `is_deleted` tinyint(1) DEFAULT '0' COMMENT '逻辑删除标记',
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_home_id` (`home_id`),
+  KEY `idx_status_next_retry_time` (`status`,`next_retry_time`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='家庭删除设备解绑补偿任务表';

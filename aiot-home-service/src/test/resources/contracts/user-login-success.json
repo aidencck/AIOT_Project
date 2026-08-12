@@ -7,6 +7,7 @@
     "$.data",
     "$.data.token",
     "$.data.userId",
+    "$.data.globalUserId",
     "$.data.nickname"
   ]
 }

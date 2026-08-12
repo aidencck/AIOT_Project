@@ -17,6 +17,33 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class GatewayUserHeaderGlobalFilterTest {
 
     @Test
+    void shouldStripSpoofedUserHeadersWithoutAuthentication() {
+        GatewayUserHeaderGlobalFilter filter = new GatewayUserHeaderGlobalFilter();
+        ServerWebExchange exchange = MockServerWebExchange.from(
+                MockServerHttpRequest.get("/api/v1/homes")
+                        .header("X-User-Id", "spoofed-user")
+                        .header("X-Global-User-Id", "spoofed-global-user")
+                        .build()
+        );
+
+        AtomicReference<String> userId = new AtomicReference<>();
+        AtomicReference<String> globalUserId = new AtomicReference<>();
+        AtomicBoolean chainCalled = new AtomicBoolean(false);
+        GatewayFilterChain chain = ex -> {
+            chainCalled.set(true);
+            userId.set(ex.getRequest().getHeaders().getFirst("X-User-Id"));
+            globalUserId.set(ex.getRequest().getHeaders().getFirst("X-Global-User-Id"));
+            return Mono.empty();
+        };
+
+        filter.filter(exchange, chain).block();
+
+        assertTrue(chainCalled.get());
+        assertEquals(null, userId.get());
+        assertEquals(null, globalUserId.get());
+    }
+
+    @Test
     void shouldInjectInternalTokenForInternalPath() {
         GatewayUserHeaderGlobalFilter filter = new GatewayUserHeaderGlobalFilter();
         ReflectionTestUtils.setField(filter, "internalToken", "internal-token-1234567890");

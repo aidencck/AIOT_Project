@@ -23,7 +23,7 @@ final class DefaultAiotJwtService implements AiotJwtService {
     }
 
     @Override
-    public String issueUserToken(String userId, String phone) {
+    public String issueUserToken(String userId, String globalUserId, String phone) {
         Long expirationMs = properties.getExpiration();
         if (expirationMs == null || expirationMs <= 0) {
             throw new IllegalArgumentException("aiot.security.jwt.expiration is required and must be > 0 when issuing tokens.");
@@ -31,6 +31,7 @@ final class DefaultAiotJwtService implements AiotJwtService {
         if (!StringUtils.hasText(userId)) {
             throw new IllegalArgumentException("userId is required.");
         }
+        String resolvedGlobalUserId = StringUtils.hasText(globalUserId) ? globalUserId : userId;
 
         Date now = new Date();
         Date exp = new Date(System.currentTimeMillis() + expirationMs);
@@ -38,6 +39,7 @@ final class DefaultAiotJwtService implements AiotJwtService {
         var builder = Jwts.builder()
                 .setSubject(userId)
                 .setId(UUID.randomUUID().toString())
+                .claim("global_user_id", resolvedGlobalUserId)
                 .claim("phone", phone)
                 .setIssuedAt(now)
                 .setExpiration(exp)
@@ -96,4 +98,3 @@ final class DefaultAiotJwtService implements AiotJwtService {
         return true;
     }
 }
-

@@ -26,12 +26,14 @@ class AuthInterceptorTest {
     void shouldBindGatewayHeadersToUserContext() {
         MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/v1/devices");
         request.addHeader("X-User-Id", "u-1");
+        request.addHeader("X-Global-User-Id", "gu-1");
         request.addHeader("X-User-Phone", "13800000000");
 
         boolean allowed = interceptor.preHandle(request, new MockHttpServletResponse(), new Object());
 
         assertTrue(allowed);
         assertEquals("u-1", UserContext.get().getUserId());
+        assertEquals("gu-1", UserContext.get().getGlobalUserId());
         assertEquals("13800000000", UserContext.get().getPhone());
     }
 
@@ -52,10 +54,12 @@ class AuthInterceptorTest {
         MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/v1/internal/homes/permission");
         request.addHeader("X-Internal-Token", "token-1");
         request.addHeader("X-User-Id", "u-2");
+        request.addHeader("X-Global-User-Id", "gu-2");
 
         boolean allowed = interceptor.preHandle(request, new MockHttpServletResponse(), new Object());
 
         assertTrue(allowed);
         assertEquals("u-2", UserContext.get().getUserId());
+        assertEquals("gu-2", UserContext.get().getGlobalUserId());
     }
 }

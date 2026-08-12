@@ -19,6 +19,8 @@ public class User {
     @TableId(type = IdType.ASSIGN_ID)
     private String id;
 
+    private String globalUserId;
+
     private String phone;
 
     private String password;

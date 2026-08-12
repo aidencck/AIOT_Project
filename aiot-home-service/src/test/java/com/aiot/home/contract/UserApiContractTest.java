@@ -55,6 +55,7 @@ class UserApiContractTest {
         LoginResp resp = new LoginResp();
         resp.setToken("contract-token");
         resp.setUserId("u-100");
+        resp.setGlobalUserId("gu-100");
         resp.setNickname("contract-user");
         when(userService.login(any())).thenReturn(resp);
 

@@ -30,6 +30,7 @@ class JwtReactiveAuthenticationManagerTest {
         String token = "mock-token";
         Claims claims = new DefaultClaims();
         claims.setSubject("1001");
+        claims.put("global_user_id", "g-1001");
         claims.put("phone", "13800000000");
         when(jwtService.verify(token)).thenReturn(claims);
 
@@ -40,6 +41,7 @@ class JwtReactiveAuthenticationManagerTest {
 
         AiotJwtPrincipal principal = (AiotJwtPrincipal) auth.getPrincipal();
         assertEquals("1001", principal.userId());
+        assertEquals("g-1001", principal.globalUserId());
         assertEquals("13800000000", principal.phone());
         verify(jwtService).verify(token);
     }
@@ -50,19 +52,17 @@ class JwtReactiveAuthenticationManagerTest {
         String token = "expired-token";
         when(jwtService.verify(token)).thenThrow(new BusinessException(ResultCode.UNAUTHORIZED, "Token 已过期"));
 
-        RuntimeException ex = assertThrows(RuntimeException.class,
+        BadCredentialsException ex = assertThrows(BadCredentialsException.class,
                 () -> manager.authenticate(new JwtPreAuthToken(token)).block());
-        assertEquals(true, ex.getCause() instanceof BadCredentialsException);
-        assertEquals("Token 已过期", ex.getCause().getMessage());
+        assertEquals("Token 已过期", ex.getMessage());
     }
 
     @Test
     void shouldRejectWhenAuthorizationHeaderMissing() {
         JwtReactiveAuthenticationManager manager = new JwtReactiveAuthenticationManager(jwtService);
 
-        RuntimeException ex = assertThrows(RuntimeException.class,
+        BadCredentialsException ex = assertThrows(BadCredentialsException.class,
                 () -> manager.authenticate(new JwtPreAuthToken(null)).block());
-        assertEquals(true, ex.getCause() instanceof BadCredentialsException);
-        assertEquals("缺少或无效的 Authorization 头", ex.getCause().getMessage());
+        assertEquals("缺少或无效的 Authorization 头", ex.getMessage());
     }
 }

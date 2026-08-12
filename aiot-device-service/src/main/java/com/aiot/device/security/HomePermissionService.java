@@ -2,6 +2,7 @@ package com.aiot.device.security;
 
 import com.aiot.common.api.Result;
 import com.aiot.common.api.ResultCode;
+import com.aiot.common.dto.home.HomeRoomRelationCheckResp;
 import com.aiot.common.exception.BusinessException;
 import com.aiot.common.http.CrossServiceHttpExecutor;
 import com.aiot.device.utils.UserContext;
@@ -48,6 +49,7 @@ public class HomePermissionService {
                         .baseUrl(baseUrl)
                         .defaultHeader("X-Internal-Token", internalToken)
                         .defaultHeader("X-User-Id", userInfo.getUserId())
+                        .defaultHeader("X-Global-User-Id", userInfo.getGlobalUserId())
                         .defaultHeader("X-User-Phone", StringUtils.hasText(userInfo.getPhone()) ? userInfo.getPhone() : "")
                         .build()
                         .get()
@@ -65,5 +67,42 @@ public class HomePermissionService {
             String message = StringUtils.hasText(denyMessage) ? denyMessage : "家庭权限不足";
             throw new BusinessException(ResultCode.FORBIDDEN, message);
         }
+    }
+
+    public HomeRoomRelationCheckResp checkHomeRoomRelation(String homeId, String roomId) {
+        if (!StringUtils.hasText(homeId)) {
+            throw new BusinessException(ResultCode.VALIDATE_FAILED, "homeId 不能为空");
+        }
+        if (!StringUtils.hasText(internalToken)) {
+            throw new BusinessException(ResultCode.UNAUTHORIZED, "内部调用密钥未配置");
+        }
+        if (!StringUtils.hasText(homeServiceBaseUrl)) {
+            throw new BusinessException(ResultCode.FAILED, "家庭服务地址未配置");
+        }
+        String baseUrl = homeServiceBaseUrl;
+
+        Result<HomeRoomRelationCheckResp> result = crossServiceHttpExecutor.execute(
+                "device-home-relation",
+                () -> WebClient.builder()
+                        .baseUrl(baseUrl)
+                        .defaultHeader("X-Internal-Token", internalToken)
+                        .build()
+                        .get()
+                        .uri(uriBuilder -> {
+                            var builder = uriBuilder.path("/api/v1/internal/homes/{homeId}/relation/check");
+                            if (StringUtils.hasText(roomId)) {
+                                builder.queryParam("roomId", roomId);
+                            }
+                            return builder.build(homeId);
+                        })
+                        .retrieve()
+                        .bodyToMono(new ParameterizedTypeReference<Result<HomeRoomRelationCheckResp>>() {})
+        );
+        if (result == null || result.getCode() == null
+                || !ResultCode.SUCCESS.getCode().equals(result.getCode())
+                || result.getData() == null) {
+            throw new BusinessException(ResultCode.FAILED, "家庭空间关系校验失败");
+        }
+        return result.getData();
     }
 }

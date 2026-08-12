@@ -9,7 +9,6 @@ import com.aiot.auth.utils.SignUtils;
 import com.aiot.common.config.RedisUtils;
 import com.aiot.common.event.DeviceEvent;
 import com.aiot.common.event.DeviceEventType;
-import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
@@ -55,18 +54,16 @@ public class AuthServiceImpl implements AuthService {
 
     @Override
     public boolean authenticateDevice(EmqxAuthReq req) {
-        String deviceId = req.getUsername();
+        String deviceIdentity = req.getUsername();
         String password = req.getPassword();
         
-        log.info("Authenticating device: {}", deviceId);
+        log.info("Authenticating device identity: {}", deviceIdentity);
 
-        // 1. Fetch Secret from DB
-        DeviceCredential credential = credentialRepository.selectOne(
-                new LambdaQueryWrapper<DeviceCredential>().eq(DeviceCredential::getDeviceId, deviceId)
-        );
+        // 1. Fetch Secret from DB, staged compatible with legacy deviceId / globalDeviceId / authIdentity / deviceSn
+        DeviceCredential credential = credentialRepository.selectByIdentity(deviceIdentity);
         
         if (credential == null) {
-            log.warn("Device [{}] credential not found", deviceId);
+            log.warn("Device [{}] credential not found", deviceIdentity);
             return false;
         }
 
@@ -74,10 +71,10 @@ public class AuthServiceImpl implements AuthService {
         String expectedPassword = SignUtils.signWithHmacSha256(req.getClientid(), credential.getDeviceSecret());
         
         if (expectedPassword.equals(password)) {
-            log.info("Device [{}] authenticated successfully", deviceId);
+            log.info("Device [{}] authenticated successfully, resolvedDeviceId={}", deviceIdentity, credential.getDeviceId());
             return true;
         } else {
-            log.warn("Device [{}] signature mismatch", deviceId);
+            log.warn("Device [{}] signature mismatch", deviceIdentity);
             return false;
         }
     }

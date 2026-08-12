@@ -47,17 +47,19 @@ class UserServiceImplTest {
 
         User user = new User();
         user.setId("u-1");
+        user.setGlobalUserId("gu-1");
         user.setPhone(req.getPhone());
         user.setNickname("alice");
         user.setPassword(DigestUtils.md5DigestAsHex(req.getPassword().getBytes(StandardCharsets.UTF_8)));
 
         when(userRepository.selectOne(any(LambdaQueryWrapper.class))).thenReturn(user);
-        when(jwtService.issueUserToken("u-1", req.getPhone())).thenReturn("mock-token");
+        when(jwtService.issueUserToken("u-1", "gu-1", req.getPhone())).thenReturn("mock-token");
 
         LoginResp resp = userService.login(req);
 
         assertEquals("mock-token", resp.getToken());
         assertEquals("u-1", resp.getUserId());
+        assertEquals("gu-1", resp.getGlobalUserId());
         assertEquals("alice", resp.getNickname());
 
         ArgumentCaptor<User> captor = ArgumentCaptor.forClass(User.class);
@@ -111,6 +113,7 @@ class UserServiceImplTest {
         verify(userRepository).insert(captor.capture());
         User inserted = captor.getValue();
         assertEquals(req.getPhone(), inserted.getPhone());
+        assertEquals(inserted.getId(), inserted.getGlobalUserId());
         assertEquals(req.getNickname(), inserted.getNickname());
         assertNotNull(inserted.getPassword());
         assertTrue(inserted.getPassword().startsWith("$2"));

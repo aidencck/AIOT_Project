@@ -20,10 +20,11 @@ class DefaultAiotJwtServiceTest {
     void shouldIssueAndVerifyUserToken() {
         DefaultAiotJwtService jwtService = new DefaultAiotJwtService(buildProperties());
 
-        String token = jwtService.issueUserToken("u-1001", "13800000000");
+        String token = jwtService.issueUserToken("u-1001", "gu-1001", "13800000000");
         Claims claims = jwtService.verify(token);
 
         assertEquals("u-1001", claims.getSubject());
+        assertEquals("gu-1001", claims.get("global_user_id", String.class));
         assertEquals("13800000000", claims.get("phone", String.class));
         assertNotNull(claims.getId());
     }

@@ -45,7 +45,9 @@ public class JwtReactiveAuthenticationManager implements ReactiveAuthenticationM
 
     private Authentication toAuthentication(String token, Claims claims) {
         Object phone = claims.get("phone");
+        Object globalUserId = claims.get("global_user_id");
         AiotJwtPrincipal principal = new AiotJwtPrincipal(claims.getSubject(),
+                globalUserId == null ? claims.getSubject() : String.valueOf(globalUserId),
                 phone == null ? null : String.valueOf(phone));
 
         // 网关本身不做细粒度权限控制：Authorities 为空即可满足 authenticated

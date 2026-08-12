@@ -1,6 +1,7 @@
 package com.aiot.device.security;
 
 import com.aiot.common.api.ResultCode;
+import com.aiot.common.dto.home.HomeRoomRelationCheckResp;
 import com.aiot.common.exception.BusinessException;
 import com.aiot.common.http.CrossServiceHttpExecutor;
 import com.aiot.common.http.CrossServiceHttpProperties;
@@ -26,6 +27,7 @@ class HomePermissionServiceTest {
     private final AtomicReference<String> capturedPath = new AtomicReference<>();
     private final AtomicReference<String> capturedToken = new AtomicReference<>();
     private final AtomicReference<String> capturedUserId = new AtomicReference<>();
+    private final AtomicReference<String> capturedGlobalUserId = new AtomicReference<>();
     private HomePermissionService homePermissionService;
 
     @BeforeEach
@@ -35,7 +37,19 @@ class HomePermissionServiceTest {
             capturedPath.set(exchange.getRequestURI().toString());
             capturedToken.set(exchange.getRequestHeaders().getFirst("X-Internal-Token"));
             capturedUserId.set(exchange.getRequestHeaders().getFirst("X-User-Id"));
+            capturedGlobalUserId.set(exchange.getRequestHeaders().getFirst("X-Global-User-Id"));
             byte[] body = "{\"code\":200,\"message\":\"操作成功\",\"data\":true}".getBytes(StandardCharsets.UTF_8);
+            exchange.getResponseHeaders().add("Content-Type", "application/json");
+            exchange.sendResponseHeaders(200, body.length);
+            try (OutputStream os = exchange.getResponseBody()) {
+                os.write(body);
+            }
+        });
+        server.createContext("/api/v1/internal/homes/home-1/relation/check", exchange -> {
+            capturedPath.set(exchange.getRequestURI().toString());
+            capturedToken.set(exchange.getRequestHeaders().getFirst("X-Internal-Token"));
+            byte[] body = "{\"code\":200,\"message\":\"操作成功\",\"data\":{\"homeExists\":true,\"roomExists\":true,\"roomBelongsToHome\":true}}"
+                    .getBytes(StandardCharsets.UTF_8);
             exchange.getResponseHeaders().add("Content-Type", "application/json");
             exchange.sendResponseHeaders(200, body.length);
             try (OutputStream os = exchange.getResponseBody()) {
@@ -57,7 +71,7 @@ class HomePermissionServiceTest {
                 "http://127.0.0.1:" + server.getAddress().getPort());
         ReflectionTestUtils.setField(homePermissionService, "internalToken", "inner-token-2026");
 
-        UserContext.set(new UserContext.UserInfo("u-1", "13800000000"));
+        UserContext.set(new UserContext.UserInfo("u-1", "gu-1", "13800000000"));
     }
 
     @AfterEach
@@ -75,6 +89,7 @@ class HomePermissionServiceTest {
         assertEquals("/api/v1/internal/homes/home-1/permission/check?minRole=3", capturedPath.get());
         assertEquals("inner-token-2026", capturedToken.get());
         assertEquals("u-1", capturedUserId.get());
+        assertEquals("gu-1", capturedGlobalUserId.get());
     }
 
     @Test
@@ -84,5 +99,16 @@ class HomePermissionServiceTest {
         BusinessException ex = assertThrows(BusinessException.class,
                 () -> homePermissionService.requireHomePermission("home-1", 3, "deny"));
         assertEquals(ResultCode.UNAUTHORIZED, ex.getResultCode());
+    }
+
+    @Test
+    void checkHomeRoomRelation_shouldCallInternalEndpoint() {
+        HomeRoomRelationCheckResp resp = homePermissionService.checkHomeRoomRelation("home-1", "room-1");
+
+        assertEquals("/api/v1/internal/homes/home-1/relation/check?roomId=room-1", capturedPath.get());
+        assertEquals("inner-token-2026", capturedToken.get());
+        assertEquals(Boolean.TRUE, resp.getHomeExists());
+        assertEquals(Boolean.TRUE, resp.getRoomExists());
+        assertEquals(Boolean.TRUE, resp.getRoomBelongsToHome());
     }
 }

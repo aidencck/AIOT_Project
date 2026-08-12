@@ -9,6 +9,7 @@ import com.aiot.home.dto.RegisterReq;
 import com.aiot.home.entity.User;
 import com.aiot.home.repository.UserRepository;
 import com.aiot.home.service.UserService;
+import com.baomidou.mybatisplus.core.toolkit.IdWorker;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -60,11 +61,13 @@ public class UserServiceImpl implements UserService {
         }
 
         // 生成 Token
-        String token = jwtService.issueUserToken(user.getId(), user.getPhone());
+        String globalUserId = resolveGlobalUserId(user);
+        String token = jwtService.issueUserToken(user.getId(), globalUserId, user.getPhone());
 
         LoginResp resp = new LoginResp();
         resp.setToken(token);
         resp.setUserId(user.getId());
+        resp.setGlobalUserId(globalUserId);
         resp.setNickname(user.getNickname());
         return resp;
     }
@@ -80,10 +83,22 @@ public class UserServiceImpl implements UserService {
         }
 
         User user = new User();
+        String generatedId = IdWorker.getIdStr();
+        user.setId(generatedId);
+        user.setGlobalUserId(generatedId);
         user.setPhone(req.getPhone());
         user.setNickname(req.getNickname());
         user.setPassword(PASSWORD_ENCODER.encode(req.getPassword()));
 
         userRepository.insert(user);
+    }
+
+    private String resolveGlobalUserId(User user) {
+        if (user == null) {
+            return null;
+        }
+        return user.getGlobalUserId() == null || user.getGlobalUserId().isBlank()
+                ? user.getId()
+                : user.getGlobalUserId();
     }
 }

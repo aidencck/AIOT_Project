@@ -11,8 +11,10 @@ import com.aiot.common.event.DeviceEvent;
 import com.aiot.common.event.DeviceEventType;
 import com.aiot.device.entity.Device;
 import com.aiot.device.entity.DeviceCredential;
+import com.aiot.device.entity.Product;
 import com.aiot.device.repository.DeviceCredentialRepository;
 import com.aiot.device.repository.DeviceRepository;
+import com.aiot.device.repository.ProductRepository;
 import com.aiot.device.security.HomePermissionService;
 import com.aiot.device.service.DeviceService;
 import com.aiot.device.service.ProvisionService;
@@ -23,6 +25,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.slf4j.MDC;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
@@ -50,6 +53,9 @@ public class ProvisionServiceImpl implements ProvisionService {
     private DeviceCredentialRepository credentialRepository;
 
     @Autowired
+    private ProductRepository productRepository;
+
+    @Autowired
     private HomePermissionService homePermissionService;
 
     @Autowired
@@ -75,6 +81,7 @@ public class ProvisionServiceImpl implements ProvisionService {
         if (!StringUtils.hasText(productKey) || !StringUtils.hasText(deviceName)) {
             throw new BusinessException(ResultCode.VALIDATE_FAILED, "productKey 和 deviceName 不能为空");
         }
+        ensureProductExists(productKey);
         homePermissionService.requireHomePermission(homeId, 2, "无权限为该家庭发放配网令牌");
 
         String auditId = UUID.randomUUID().toString();
@@ -144,28 +151,30 @@ public class ProvisionServiceImpl implements ProvisionService {
     }
 
     private ProvisionResp resolveOrCreateProvisioning(ProvisionTokenPayload payload, ProvisionReq req, String auditId) {
-        LambdaQueryWrapper<Device> existedQuery = new LambdaQueryWrapper<>();
-        existedQuery.eq(Device::getProductKey, req.getProductKey())
-                .eq(Device::getDeviceName, req.getDeviceName());
-        List<Device> existedDevices = deviceRepository.selectList(existedQuery);
+        List<Device> existedDevices = findExistingDevices(req.getProductKey(), req.getDeviceName());
         Device existed = existedDevices.isEmpty() ? null : existedDevices.get(0);
         if (existedDevices.size() > 1) {
             log.warn("Provision duplicate device records detected, auditId={}, productKey={}, deviceName={}, records={}",
                     auditId, req.getProductKey(), req.getDeviceName(), existedDevices.size());
+            throw new BusinessException(ResultCode.FAILED, "设备唯一性被破坏，请联系管理员修复");
         }
         if (existed != null) {
+            if (!StringUtils.hasText(existed.getHomeId())) {
+                DeviceReq deviceReq = new DeviceReq();
+                deviceReq.setProductKey(req.getProductKey());
+                deviceReq.setDeviceName(req.getDeviceName());
+                deviceReq.setHomeId(payload.homeId());
+                DeviceResp deviceResp = deviceService.claimUnboundDevice(deviceReq);
+                return buildResp(deviceResp.getId(), deviceResp.getGlobalDeviceId(),
+                        deviceResp.getDeviceSn(), deviceResp.getAuthIdentity(), deviceResp.getDeviceSecret());
+            }
             if (!Objects.equals(existed.getHomeId(), payload.homeId())) {
                 log.warn("Provision home mismatch for existing device, auditId={}, productKey={}, deviceName={}, expectedHomeId={}, actualHomeId={}",
                         auditId, req.getProductKey(), req.getDeviceName(), payload.homeId(), existed.getHomeId());
                 throw new BusinessException(ResultCode.FORBIDDEN, "设备已绑定其他家庭，禁止重复认领");
             }
-            LambdaQueryWrapper<DeviceCredential> credentialQuery = new LambdaQueryWrapper<>();
-            credentialQuery.eq(DeviceCredential::getDeviceId, existed.getId());
-            DeviceCredential credential = credentialRepository.selectOne(credentialQuery);
-            if (credential == null) {
-                throw new BusinessException(ResultCode.FAILED, "设备凭证不存在，请联系管理员处理");
-            }
-            return buildResp(existed.getId(), credential.getDeviceSecret());
+            return buildResp(existed.getId(), resolveGlobalDeviceId(existed),
+                    existed.getDeviceSn(), resolveAuthIdentity(existed), loadCredential(existed.getId()).getDeviceSecret());
         }
 
         DeviceReq deviceReq = new DeviceReq();
@@ -173,13 +182,35 @@ public class ProvisionServiceImpl implements ProvisionService {
         deviceReq.setDeviceName(req.getDeviceName());
         deviceReq.setHomeId(payload.homeId());
 
-        DeviceResp deviceResp = deviceService.createDevice(deviceReq);
-        return buildResp(deviceResp.getId(), deviceResp.getDeviceSecret());
+        try {
+            DeviceResp deviceResp = deviceService.createDevice(deviceReq);
+            return buildResp(deviceResp.getId(), deviceResp.getGlobalDeviceId(),
+                    deviceResp.getDeviceSn(), deviceResp.getAuthIdentity(), deviceResp.getDeviceSecret());
+        } catch (DuplicateKeyException ex) {
+            List<Device> concurrentDevices = findExistingDevices(req.getProductKey(), req.getDeviceName());
+            if (concurrentDevices.size() != 1) {
+                throw new BusinessException(ResultCode.FAILED, "设备唯一性被破坏，请联系管理员修复");
+            }
+            Device concurrentDevice = concurrentDevices.get(0);
+            if (!Objects.equals(concurrentDevice.getHomeId(), payload.homeId())) {
+                throw new BusinessException(ResultCode.FORBIDDEN, "设备已绑定其他家庭，禁止重复认领");
+            }
+            return buildResp(concurrentDevice.getId(), resolveGlobalDeviceId(concurrentDevice),
+                    concurrentDevice.getDeviceSn(), resolveAuthIdentity(concurrentDevice),
+                    loadCredential(concurrentDevice.getId()).getDeviceSecret());
+        }
     }
 
-    private ProvisionResp buildResp(String deviceId, String deviceSecret) {
+    private ProvisionResp buildResp(String deviceId,
+                                    String globalDeviceId,
+                                    String deviceSn,
+                                    String authIdentity,
+                                    String deviceSecret) {
         ProvisionResp resp = new ProvisionResp();
         resp.setDeviceId(deviceId);
+        resp.setGlobalDeviceId(globalDeviceId);
+        resp.setDeviceSn(deviceSn);
+        resp.setAuthIdentity(authIdentity);
         resp.setDeviceSecret(deviceSecret);
         resp.setMqttHost(mqttHost);
         resp.setMqttPort(mqttPort);
@@ -241,6 +272,43 @@ public class ProvisionServiceImpl implements ProvisionService {
             }
         }
         throw new BusinessException(ResultCode.VALIDATE_FAILED, "配网 Token 数据格式错误");
+    }
+
+    private List<Device> findExistingDevices(String productKey, String deviceName) {
+        LambdaQueryWrapper<Device> existedQuery = new LambdaQueryWrapper<>();
+        existedQuery.eq(Device::getProductKey, productKey)
+                .eq(Device::getDeviceName, deviceName);
+        return deviceRepository.selectList(existedQuery);
+    }
+
+    private DeviceCredential loadCredential(String deviceId) {
+        LambdaQueryWrapper<DeviceCredential> credentialQuery = new LambdaQueryWrapper<>();
+        credentialQuery.eq(DeviceCredential::getDeviceId, deviceId);
+        DeviceCredential credential = credentialRepository.selectOne(credentialQuery);
+        if (credential == null) {
+            throw new BusinessException(ResultCode.FAILED, "设备凭证不存在，请联系管理员处理");
+        }
+        return credential;
+    }
+
+    private void ensureProductExists(String productKey) {
+        LambdaQueryWrapper<Product> wrapper = new LambdaQueryWrapper<>();
+        wrapper.eq(Product::getProductKey, productKey);
+        if (productRepository.selectOne(wrapper) == null) {
+            throw new BusinessException(ResultCode.PRODUCT_NOT_FOUND, "产品不存在");
+        }
+    }
+
+    private String resolveGlobalDeviceId(Device device) {
+        return device != null && StringUtils.hasText(device.getGlobalDeviceId())
+                ? device.getGlobalDeviceId()
+                : device == null ? null : device.getId();
+    }
+
+    private String resolveAuthIdentity(Device device) {
+        return device != null && StringUtils.hasText(device.getAuthIdentity())
+                ? device.getAuthIdentity()
+                : device == null ? null : device.getId();
     }
 
     private record ProvisionTokenPayload(String homeId, String productKey, String deviceName) {
