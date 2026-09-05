@@ -376,6 +376,7 @@ observability::verify() {
   local -a endpoints=(
     "prometheus http://localhost:9090/-/healthy"
     "alertmanager http://localhost:9093/-/healthy"
+    "ops-router http://localhost:18080/"
     "loki http://localhost:3100/ready"
     "tempo http://localhost:3200/ready"
     "grafana http://localhost:3000/api/health"

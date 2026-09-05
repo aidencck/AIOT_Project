@@ -40,21 +40,26 @@ AIOTCTL := $(_EXPORT) ./aiotctl
 	prod prod-down staging staging-down \
 	build build-jars build-images \
 	deploy deploy-prod deploy-staging \
-	verify verify-infra verify-local \
+	migrate gate canary rollback reset \
+	verify verify-infra verify-local release-health \
 	logs logs-infra logs-local logs-main \
 	ps ps-infra ps-local ps-main \
 	down clean \
 	test-e2e test-comm test-webhook test-mqtt test-shadow \
 	drill-rollback drill-canary drill-fault \
-	ai-seed ai-verify ai-flow release-health
+	ai-seed ai-verify ai-flow ai-mysql-check ai-migrate-gate \
+	jvm-diagnostics log-query \
+	observability observability-down observability-status observability-verify
 
 help: ## 所有目标（一键转发到 aiotctl）
 	@echo "AIOT Makefile shortcuts → 全部转发到 ./aiotctl（单入口工程化）"
 	@echo "  🔧  开发模式：infra (P0) / local (P1) / main / admin / ci"
 	@echo "  🏗   构建：build / build-jars / build-images"
 	@echo "  🚀  部署：deploy-prod / deploy-staging <service> <tag>"
+	@echo "  🚦  发布：gate / canary / rollback / migrate / reset"
 	@echo "  🧪  测试：test-comm / test-e2e / test-webhook / test-mqtt / test-shadow"
 	@echo "  🩺  体检：doctor  verify-infra  verify-local  release-health"
+	@echo "  🔭  观测：observability / observability-verify / jvm-diagnostics / log-query"
 	@echo "  🪵  日志：logs-infra / logs-local / logs-main [SERVICE=aiot-home-service]"
 	@echo "  🛑  停止：down [--volumes] / clean"
 	@echo ""
@@ -70,11 +75,11 @@ doctor: ## 环境自检：命令/密钥/端口/语法
 # 适用场景：日常迭代开发，需要断点调试、热重载，最大化开发效率
 infra: ## [P0] 仅4个infra容器，IDE直跑8个JVM（断点+热重载）
 	@$(AIOTCTL) infra up
-infra-ps:     ## infra容器状态
+infra-ps: ## infra容器状态
 	@$(AIOTCTL) infra ps
-infra-logs:   ## infra日志tail；用 SERVICE=aiot-mysql 指定单容器
+infra-logs: ## infra日志tail；用 SERVICE=aiot-mysql 指定单容器
 	@$(AIOTCTL) infra logs $(SERVICE)
-infra-down:   ## 停infra
+infra-down: ## 停infra
 	@$(AIOTCTL) infra down
 
 # P2级开发模式：启动本地全栈docker-compose，不含自动构建，用于验证镜像可用性
@@ -84,83 +89,147 @@ local: ## [P2] 全栈 docker-compose.local.yml（不含build）
 local-build: ## [P2] 全栈：Maven打包 → 本地镜像build → up
 	@$(AIOTCTL) build all
 	@$(AIOTCTL) local up
-local-ps:     @$(AIOTCTL) local ps
-local-logs:   @$(AIOTCTL) local logs $(SERVICE)
-local-down:   @$(AIOTCTL) local down
+local-ps: ## 本地栈容器状态
+	@$(AIOTCTL) local ps
+local-logs: ## 本地栈日志；用 SERVICE= 指定单容器
+	@$(AIOTCTL) local logs $(SERVICE)
+local-down: ## 停本地栈
+	@$(AIOTCTL) local down
 
 # P1级开发模式：启动主业务集群，拉取ghcr.io官方预构建镜像，无需本地打包
 # 适用场景：联调测试，需要快速搭建完整核心集群，聚焦业务联调而非本地构建
-main:         ## [P1] 主compose 12核心 ghcr.io 镜像
+main: ## [P1] 主compose 12核心 ghcr.io 镜像
 	@$(AIOTCTL) dev up
-main-obs:     ## 主compose + observability（全21容器）
+main-obs: ## 主compose + observability（全21容器）
 	@$(AIOTCTL) observability up
-main-ps:      @$(AIOTCTL) dev ps
-main-logs:    @$(AIOTCTL) dev logs $(SERVICE)
-main-down:    @$(AIOTCTL) dev down
+main-ps: ## 主集群容器状态
+	@$(AIOTCTL) dev ps
+main-logs: ## 主集群日志；用 SERVICE= 指定单容器
+	@$(AIOTCTL) dev logs $(SERVICE)
+main-down: ## 停主集群
+	@$(AIOTCTL) dev down
 
 # AI后台专属开发模式：启动AI模块持久化存储，支撑AI功能本地开发
-admin:        ## Admin本地模式（AI持久化）
+admin: ## Admin本地模式（AI持久化）
 	@$(AIOTCTL) admin up
-admin-down:   @$(AIOTCTL) admin down
+admin-down: ## 停Admin本地模式
+	@$(AIOTCTL) admin down
 
 # CI环境专用模式：端口全部偏移1808x，避免和本地开发端口冲突，支持CI流水线并行执行
-ci:           ## CI端口偏移(1808x)
+ci: ## CI端口偏移(1808x)
 	@$(AIOTCTL) ci up
-ci-down:      @$(AIOTCTL) ci down
+ci-down: ## 停CI模式
+	@$(AIOTCTL) ci down
 
 # -------- 构建流程 --------
-build:        ## jars + 本地images
+build: ## jars + 本地images
 	@$(AIOTCTL) build all
-build-jars:   ## 仅Maven打包
+build-jars: ## 仅Maven打包
 	@$(AIOTCTL) build jars
 build-images: ## 仅本地镜像分层build
 	@$(AIOTCTL) build images
 
 # -------- 部署流程（生产/预发环境统一入口）--------
-deploy:               ## 通用: make deploy ENV=prod SERVICES="aiot-gateway aiot-auth-service"
+deploy: ## 通用: make deploy ENV=prod SERVICES="aiot-gateway aiot-auth-service"
 	@$(AIOTCTL) deploy $(ENV) $(SERVICES)
-deploy-staging:       ## make deploy-staging SERVICES=aiot-gateway,aiot-auth-service
+deploy-staging: ## make deploy-staging SERVICES="aiot-gateway aiot-auth-service"
 	@$(AIOTCTL) deploy staging $(SERVICES)
-deploy-prod:          ## make deploy-prod
+deploy-prod: ## make deploy-prod SERVICES="aiot-gateway aiot-auth-service"
 	@$(AIOTCTL) deploy prod $(SERVICES)
-staging:              @$(AIOTCTL) deploy staging
-staging-down:         @$(AIOTCTL) down staging
-prod:                 @$(AIOTCTL) deploy prod
-prod-down:            @$(AIOTCTL) down prod
+
+migrate: ## Flyway迁移: make migrate ARGS="--db all"
+	@$(AIOTCTL) migrate $(ARGS)
+gate: ## 发布门禁: make gate ENV=prod SERVICES="aiot-gateway aiot-auth-service"
+	@$(AIOTCTL) gate $(ENV) $(SERVICES)
+canary: ## 灰度发布: make canary ENV=prod SERVICE=aiot-gateway TAG=<sha>
+	@$(AIOTCTL) canary $(ENV) $(SERVICE) $(TAG)
+rollback: ## 回滚: make rollback ENV=prod SERVICE=aiot-gateway
+	@$(AIOTCTL) rollback $(ENV) $(SERVICE)
+reset: ## 重置: make reset MODE=fresh ARGS="--yes"
+	@$(AIOTCTL) reset $(MODE) $(ARGS)
+
+staging: ## 部署staging全栈
+	@$(AIOTCTL) deploy staging
+staging-down: ## 停staging
+	@$(AIOTCTL) down staging
+prod: ## 部署prod全栈
+	@$(AIOTCTL) deploy prod
+prod-down: ## 停prod
+	@$(AIOTCTL) down prod
 
 # -------- 验证与观测/停止 --------
-verify:           @$(AIOTCTL) verify local
-verify-infra:     @$(AIOTCTL) verify infra
-verify-local:     @$(AIOTCTL) verify local
-release-health:   @$(AIOTCTL) release-health $(SERVICES)
+verify: ## 验证local栈TCP+健康
+	@$(AIOTCTL) verify local
+verify-infra: ## 验证infra栈
+	@$(AIOTCTL) verify infra
+verify-local: ## 验证local栈
+	@$(AIOTCTL) verify local
+release-health: ## 发布后健康门禁: make release-health SERVICES="aiot-gateway"
+	@$(AIOTCTL) release-health $(SERVICES)
 
-logs:             @$(AIOTCTL) logs main $(SERVICE)
-logs-infra:       @$(AIOTCTL) logs infra $(SERVICE)
-logs-local:       @$(AIOTCTL) logs local $(SERVICE)
-logs-main:        @$(AIOTCTL) logs main $(SERVICE)
+observability: ## 观测栈up: make observability
+	@$(AIOTCTL) observability up
+observability-down: ## 观测栈down
+	@$(AIOTCTL) observability down
+observability-status: ## 观测栈状态
+	@$(AIOTCTL) observability status
+observability-verify: ## 观测栈健康验证
+	@$(AIOTCTL) observability verify
+jvm-diagnostics: ## JVM诊断: make jvm-diagnostics SERVICE=aiot-home-service ACTION=thread-dump
+	@$(AIOTCTL) jvm-diagnostics $(SERVICE) $(ACTION)
+log-query: ## 结构化日志检索: make log-query ARGS="--service aiot-gateway"
+	@$(AIOTCTL) log-query $(ARGS)
 
-ps:               @$(AIOTCTL) ps main
-ps-infra:         @$(AIOTCTL) ps infra
-ps-local:         @$(AIOTCTL) ps local
-ps-main:          @$(AIOTCTL) ps main
+logs: ## 主集群日志
+	@$(AIOTCTL) logs main $(SERVICE)
+logs-infra: ## infra日志
+	@$(AIOTCTL) logs infra $(SERVICE)
+logs-local: ## local日志
+	@$(AIOTCTL) logs local $(SERVICE)
+logs-main: ## 主集群日志
+	@$(AIOTCTL) logs main $(SERVICE)
 
-down:             ## make down / make down TARGET=infra / TARGET=all --volumes
+ps: ## 主集群容器列表
+	@$(AIOTCTL) ps main
+ps-infra: ## infra容器列表
+	@$(AIOTCTL) ps infra
+ps-local: ## local容器列表
+	@$(AIOTCTL) ps local
+ps-main: ## 主集群容器列表
+	@$(AIOTCTL) ps main
+
+down: ## make down TARGET=infra|all [--volumes]
 	@$(AIOTCTL) down $(TARGET) $(VOLUMES)
-clean:            ## 全栈停+清卷+prune AIOT标签悬空镜像
+clean: ## 全栈停+清卷+prune AIOT标签悬空镜像
 	@$(AIOTCTL) down all --volumes
 
 # -------- 测试与混沌演练 --------
-test-comm:      @$(AIOTCTL) test communication
-test-e2e:       @$(AIOTCTL) test e2e
-test-webhook:   @$(AIOTCTL) test webhook
-test-mqtt:      @$(AIOTCTL) test mqtt
-test-shadow:    @$(AIOTCTL) test shadow
+test-comm: ## 服务通信测试
+	@$(AIOTCTL) test communication
+test-e2e: ## E2E测试
+	@$(AIOTCTL) test e2e
+test-webhook: ## Webhook测试
+	@$(AIOTCTL) test webhook
+test-mqtt: ## MQTT测试
+	@$(AIOTCTL) test mqtt
+test-shadow: ## 影子设备测试
+	@$(AIOTCTL) test shadow
 
-drill-rollback: @$(AIOTCTL) drill rollback
-drill-canary:   @$(AIOTCTL) drill canary
-drill-fault:    @$(AIOTCTL) drill inject-fault
+drill-rollback: ## 回滚演练
+	@$(AIOTCTL) drill rollback
+drill-canary: ## 灰度演练
+	@$(AIOTCTL) drill canary
+drill-fault: ## 故障注入演练
+	@$(AIOTCTL) drill inject-fault
 
 # -------- AI模块专属能力 --------
-ai-seed:        @$(AIOTCTL) ai seed
-ai-verify:      @$(AIOTCTL) ai verify
-ai-flow:        @$(AIOTCTL) ai flow
+ai-seed: ## AI种子数据
+	@$(AIOTCTL) ai seed
+ai-verify: ## AI持久化验证
+	@$(AIOTCTL) ai verify
+ai-flow: ## AI业务链路验证
+	@$(AIOTCTL) ai flow
+ai-mysql-check: ## AI MySQL约束校验
+	@$(AIOTCTL) ai mysql-check
+ai-migrate-gate: ## AI迁移门禁
+	@$(AIOTCTL) ai migrate-gate
