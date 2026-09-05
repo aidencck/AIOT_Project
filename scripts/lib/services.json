@@ -1,0 +1,92 @@
+{
+  "services": [
+    {
+      "name": "aiot-gateway",
+      "dir": "aiot-gateway",
+      "port": 8080,
+      "needs_infra": false,
+      "runtime_env": {
+        "AIOT_JWT_SECRET": "runtime-smoke-jwt-secret-12345678901234567890"
+      }
+    },
+    {
+      "name": "aiot-device-service",
+      "dir": "aiot-device-service",
+      "port": 8081,
+      "needs_infra": true,
+      "runtime_env": {
+        "MYSQL_HOST": "127.0.0.1",
+        "MYSQL_USER": "root",
+        "MYSQL_PASSWORD": "runtime-smoke-mysql-password-123456",
+        "REDIS_HOST": "127.0.0.1",
+        "EMQX_HOST": "127.0.0.1",
+        "EMQX_API_USER": "admin",
+        "EMQX_API_PASSWORD": "runtime-smoke-emqx-password-123456",
+        "AIOT_INTERNAL_TOKEN": "runtime-smoke-token-1234567890",
+        "AIOT_JWT_SECRET": "runtime-smoke-jwt-secret-12345678901234567890"
+      }
+    },
+    {
+      "name": "aiot-auth-service",
+      "dir": "aiot-auth-service",
+      "port": 8082,
+      "needs_infra": true,
+      "runtime_env": {
+        "MYSQL_HOST": "127.0.0.1",
+        "MYSQL_USER": "root",
+        "MYSQL_PASSWORD": "runtime-smoke-mysql-password-123456",
+        "REDIS_HOST": "127.0.0.1",
+        "AIOT_INTERNAL_TOKEN": "runtime-smoke-token-1234567890",
+        "AIOT_EMQX_WEBHOOK_SECRET": "runtime-smoke-webhook-secret-1234567890"
+      }
+    },
+    {
+      "name": "aiot-home-service",
+      "dir": "aiot-home-service",
+      "port": 8083,
+      "needs_infra": true,
+      "runtime_env": {
+        "MYSQL_HOST": "127.0.0.1",
+        "MYSQL_PORT": "3306",
+        "MYSQL_USER": "root",
+        "MYSQL_PASSWORD": "runtime-smoke-mysql-password-123456",
+        "REDIS_HOST": "127.0.0.1",
+        "REDIS_PORT": "6379",
+        "AIOT_INTERNAL_TOKEN": "runtime-smoke-token-1234567890",
+        "AIOT_JWT_SECRET": "runtime-smoke-jwt-secret-12345678901234567890"
+      }
+    },
+    {
+      "name": "aiot-rule-engine",
+      "dir": "aiot-rule-engine",
+      "port": 8084,
+      "needs_infra": true,
+      "runtime_env": {
+        "REDIS_HOST": "127.0.0.1"
+      }
+    },
+    {
+      "name": "aiot-mqtt-adapter",
+      "dir": "aiot-mqtt-adapter",
+      "port": 8085,
+      "needs_infra": false,
+      "runtime_env": {}
+    },
+    {
+      "name": "aiot-data-parser",
+      "dir": "aiot-data-parser",
+      "port": 8086,
+      "needs_infra": false,
+      "runtime_env": {}
+    },
+    {
+      "name": "aiot-shadow-service",
+      "dir": "aiot-shadow-service",
+      "port": 8087,
+      "needs_infra": true,
+      "runtime_env": {
+        "REDIS_HOST": "127.0.0.1"
+      }
+    }
+  ]
+}

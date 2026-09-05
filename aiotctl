@@ -127,21 +127,19 @@ _mode_switch() {
 }
 
 ps_print() {
-  local mode="$1" wd
-  wd="$(compose::workdir "$mode")"
-  compose::files "$mode"
-  secret::export_defaults
-  ( cd "$wd" && comp_exec "${_COMPOSE_FILES[@]}" ps --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}' )
+  local mode="$1"
+  env::ctx "$mode"
+  compose::load_env
+  ( cd "$_CTX_WORKDIR" && comp_exec "${_COMPOSE_FILES[@]}" ps --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}' )
 }
 _logs() {
-  local mode="$1" svc="${2:-}" wd
-  wd="$(compose::workdir "$mode")"
-  compose::files "$mode"
-  secret::export_defaults
+  local mode="$1" svc="${2:-}"
+  env::ctx "$mode"
+  compose::load_env
   if [[ -n "$svc" ]]; then
-    ( cd "$wd" && comp_exec "${_COMPOSE_FILES[@]}" logs -f --tail=500 "$svc" )
+    ( cd "$_CTX_WORKDIR" && comp_exec "${_COMPOSE_FILES[@]}" logs -f --tail=500 "$svc" )
   else
-    ( cd "$wd" && comp_exec "${_COMPOSE_FILES[@]}" logs -f --tail=200 )
+    ( cd "$_CTX_WORKDIR" && comp_exec "${_COMPOSE_FILES[@]}" logs -f --tail=200 )
   fi
 }
 verify_poll() {
@@ -165,9 +163,8 @@ cmd_build() {
 cmd_deploy() {
   local env="$1"; shift || log::fatal "deploy need env (staging|prod)"
   local compose_mode="$env"
-  secret::export_defaults
-  AIOT_ENV="$env" compose::config_test "$compose_mode"
-  AIOT_ENV="$env" compose::up "$compose_mode"
+  compose::config_test "$compose_mode"
+  compose::up "$compose_mode"
   if (( $# > 0 )); then log::info "target services=$* (可后续接 canary 灰度)"; fi
   verify_poll "$compose_mode"
 }
@@ -344,7 +341,6 @@ cmd_ai() {
 cmd_observability() {
   local sub="$1"
   local mode="local-obs"
-  local wd
   local -a services=(
     prometheus
     alertmanager
@@ -356,23 +352,18 @@ cmd_observability() {
     mysqld-exporter
     redis-exporter
   )
-  wd="$(compose::workdir "$mode")"
-  compose::files "$mode"
+  env::ctx "$mode"
+  compose::load_env
   case "$sub" in
     up)
-      secret::export_defaults
-      secret::load_file "${AIOT_ROOT_DIR}/compose/env/${AIOT_ENV}/runtime.env"
-      ( cd "$wd" && comp_exec "${_COMPOSE_FILES[@]}" up -d --no-deps "${services[@]}" )
+      ( cd "$_CTX_WORKDIR" && comp_exec "${_COMPOSE_FILES[@]}" up -d --no-deps "${services[@]}" )
       ;;
     down)
-      secret::export_defaults
-      secret::load_file "${AIOT_ROOT_DIR}/compose/env/${AIOT_ENV}/runtime.env"
-      ( cd "$wd" && comp_exec "${_COMPOSE_FILES[@]}" stop "${services[@]}" ) || true
-      ( cd "$wd" && comp_exec "${_COMPOSE_FILES[@]}" rm -f "${services[@]}" ) || true
+      ( cd "$_CTX_WORKDIR" && comp_exec "${_COMPOSE_FILES[@]}" stop "${services[@]}" ) || true
+      ( cd "$_CTX_WORKDIR" && comp_exec "${_COMPOSE_FILES[@]}" rm -f "${services[@]}" ) || true
       ;;
     status)
-      secret::export_defaults
-      ( cd "$wd" && comp_exec "${_COMPOSE_FILES[@]}" ps "${services[@]}" )
+      ( cd "$_CTX_WORKDIR" && comp_exec "${_COMPOSE_FILES[@]}" ps "${services[@]}" )
       ;;
     verify)
       observability::verify
