@@ -1,0 +1,459 @@
+#!/usr/bin/env bash
+# ======================================================================
+# AIoT Unified DevOps CLI  —  aiotctl
+# USAGE:  ./aiotctl <command> [options]
+#   合并: 脚本启动/编排/Makefile快捷/发布/回滚/体检/验证/测试
+#   底层: 全部走 scripts/lib/common.sh 共享函数，无重复实现
+# ======================================================================
+set -Eeuo pipefail
+
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=scripts/lib/common.sh
+source "${ROOT_DIR}/scripts/lib/common.sh"
+
+usage() {
+  cat <<'EOF'
+${C_BOLD}AIoT DevOps Unified CLI${C_RST}  (./aiotctl)
+
+${C_BOLD}【本地开发 - 一键拉起】${C_RST}
+  infra  [up|ps|logs|down|doctor]     P0推荐: 仅4个中间件容器，IDE直跑JVM
+  dev    [up|ps|logs|down]            P1: 12核心容器(infra+8biz ghcr.io)
+  local  [up|build|ps|logs|down]      P2: 全栈本地Maven打包+分层Docker build
+  admin  [up|verify|down]             Admin+AI持久化本地模式
+  ci     [up|down]                    CI端口偏移模式(1808x)
+
+${C_BOLD}【构建】${C_RST}
+  build jars|images|all               jars(跳过测试) / images(local mode) / 两者
+
+${C_BOLD}【部署与发布】${C_RST}
+  migrate   [--db all|cloud|home] [--mode migrate|info] [--target <ver>]  Flyway数据库迁移
+  deploy    <env> [svcs...]           env=staging|prod  → base+env.yml 组合启动
+  canary    <env> <service> <tag>     灰度单服务
+  rollback  <env> <service>           回滚上一版本
+  gate <env> [svcs...]                Release Gate: 健康+连接+JWT门禁
+
+${C_BOLD}【重置与部署模式】${C_RST}
+  reset     fresh|incremental [--yes] fresh=重置+全量构建部署; incremental=保留数据卷拉取ghcr.io增量更新
+
+${C_BOLD}【体检与验证】${C_RST}
+  doctor                              自检: 命令存在/密钥长度/端口占用/compose语法
+  verify  <mode>                      mode=infra|dev|local|admin|prod  → TCP+健康检查
+  logs    <mode> [svc]                模式日志 tail；可指定单个服务
+  ps      <mode>                      容器列表
+  down    [all|infra|dev|local|admin|ci|prod|staging] [--volumes]
+
+${C_BOLD}【测试与演练】${C_RST}
+  test communication|e2e|webhook|mqtt|shadow  E2E/MQTT/Webhook/影子设备
+  drill rollback|canary|inject-fault          发布/回滚/故障注入演练
+  ai  seed|verify|flow                        AI持久化种子/校验/业务链路
+
+${C_BOLD}【运维】${C_RST}
+  jvm-diagnostics <svc> [action]      JVM诊断：thread-dump/class-histogram/gcutil/heap-dump
+  observability up|down|status|verify 可观测性栈开关/状态/健康验证
+  release-health <svc> [svc...]       发布后健康门禁（对应 verify_release_health.sh）
+  log-query  [--service/--trace-id/--level/--contains ...]  结构化日志检索（Loki优先，降级docker logs）
+
+ENV: AIOT_ENV=dev|staging|prod  IMAGE_TAG=main|<sha>  MYSQL_PASSWORD=...  AIOT_JWT_SECRET=...
+示例:
+  ./aiotctl infra up
+  ./aiotctl build all
+  ./aiotctl local up
+  ./aiotctl doctor
+  ./aiotctl deploy prod aiot-gateway aiot-auth-service
+EOF
+}
+
+cmd_infra()     { _mode_switch infra       infra       "$@"; }
+cmd_dev()       { _mode_switch dev         main        "$@"; }
+cmd_local()     { _mode_switch local       local       "$@"; }
+cmd_admin()     { _mode_switch admin       admin-local "$@"; }
+cmd_ci()        { _mode_switch ci          ci          "$@"; }
+
+_ports_for_mode() {
+  # 单一事实源：模式 → TCP 健康轮询端口列表（System A 根目录 compose 无 Nacos，不含 8848）
+  local mode="$1"
+  local -a p
+  case "$mode" in
+    infra) p=(3306 6379 1883 18083) ;;
+    ci)    p=(3306 6379 1883 8080 18081 18082 18083) ;;
+    *)     p=(3306 6379 1883)
+           for s in $(service::list); do p+=("$(service::port "$s")"); done ;;
+  esac
+  printf '%s\n' "${p[@]}"
+}
+
+_mode_switch() {
+  local alias_name="$1"; shift
+  local compose_mode="$1"; shift
+  # 余参第1位如果是合法sub指令则用它，否则默认sub=up
+  local valid_subs="up ps logs down verify doctor build"
+  local sub="${1:-up}"
+  if [[ " $valid_subs " == *" $sub "* ]]; then
+    shift || true
+  else
+    sub="up"
+  fi
+  local svc="${1:-}"
+  case "$sub" in
+    up)
+      compose::config_test "$compose_mode"
+      compose::up "$compose_mode"
+      local ports
+      ports=($(_ports_for_mode "$compose_mode"))
+      log::section "TCP health poll (max 300s)"
+      if verify::health_poll "$compose_mode" 300 "${ports[@]}"; then
+        log::ok "all ports ready"; ps_print "$compose_mode"
+      else
+        log::warn "poll timeout, check logs"
+        ps_print "$compose_mode"
+        exit 2
+      fi
+      ;;
+    build)
+      build::jars
+      build::images "$compose_mode"
+      ;;
+    ps)     ps_print "$compose_mode" ;;
+    logs)   _logs "$compose_mode" "$svc" ;;
+    down)
+      local volumes="false"
+      args::has_flag "--volumes" "$@" && volumes="true"
+      compose::down "$compose_mode" "$volumes"
+      ;;
+    doctor) doctor_all ;;
+    verify) verify_poll "$compose_mode" ;;
+    *)      usage; exit 2 ;;
+  esac
+}
+
+ps_print() {
+  local mode="$1" wd
+  wd="$(compose::workdir "$mode")"
+  compose::files "$mode"
+  secret::export_defaults
+  ( cd "$wd" && comp_exec "${_COMPOSE_FILES[@]}" ps --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}' )
+}
+_logs() {
+  local mode="$1" svc="${2:-}" wd
+  wd="$(compose::workdir "$mode")"
+  compose::files "$mode"
+  secret::export_defaults
+  if [[ -n "$svc" ]]; then
+    ( cd "$wd" && comp_exec "${_COMPOSE_FILES[@]}" logs -f --tail=500 "$svc" )
+  else
+    ( cd "$wd" && comp_exec "${_COMPOSE_FILES[@]}" logs -f --tail=200 )
+  fi
+}
+verify_poll() {
+  local mode="$1" ports
+  ports=($(_ports_for_mode "$mode"))
+  log::section "Verify mode=$mode  TCP=${ports[*]}"
+  if verify::health_poll "$mode" 180 "${ports[@]}"; then log::ok "verify passed"; else log::fatal "verify FAILED"; fi
+}
+
+cmd_build() {
+  local what="${1:-all}"
+  case "$what" in
+    jars)   build::jars ;;
+    images) build::images local ;;
+    all)    build::jars; build::images local ;;
+    *)      usage; exit 2 ;;
+  esac
+  log::ok "build $what done"
+}
+
+cmd_deploy() {
+  local env="$1"; shift || log::fatal "deploy need env (staging|prod)"
+  local compose_mode="$env"
+  secret::export_defaults
+  AIOT_ENV="$env" compose::config_test "$compose_mode"
+  AIOT_ENV="$env" compose::up "$compose_mode"
+  if (( $# > 0 )); then log::info "target services=$* (可后续接 canary 灰度)"; fi
+  verify_poll "$compose_mode"
+}
+
+cmd_migrate()  { ( cd "$AIOT_ROOT_DIR" && bash scripts/migrate_database.sh "$@" ); }
+
+cmd_canary()   { log::info "灰度: [env=$1 svc=$2 tag=$3] → 复用 scripts/release_canary_with_rollback.sh";
+                 ( cd "$AIOT_ROOT_DIR" && bash scripts/release_canary_with_rollback.sh --service "$2" --tag "$3" ); }
+cmd_rollback() { log::info "回滚: [env=$1 svc=$2] → scripts/rollback_single_service.sh";
+                 ( cd "$AIOT_ROOT_DIR" && bash scripts/rollback_single_service.sh --service "$2" ); }
+cmd_gate()     { local e="$1"; shift; local tag="${IMAGE_TAG:-main}";
+                 if (( $# == 0 )); then log::fatal "gate 需要至少一个 service"; fi
+                 log::info "release gate env=$e tag=$tag svcs=$*";
+                 local svc;
+                 for svc in "$@"; do
+                   ( cd "$AIOT_ROOT_DIR" && bash scripts/release_gate_check.sh --service "$svc" --tag "$tag" );
+                 done; }
+
+cmd_doctor()   { doctor_all; }
+
+doctor_all() {
+  log::banner "AIOT DEV DOCTOR"
+  local fail=0
+  # 1. 基础命令
+  for c in docker mvn curl jq; do
+    if ( PATH="/usr/local/bin:/opt/homebrew/bin:${HOME}/.docker/bin:$PATH" command -v "$c" >/dev/null 2>&1 ); then
+      log::ok "cmd: $c"
+    else
+      log::error "cmd MISSING: $c"; fail=$((fail+1))
+    fi
+  done
+  # 2. compose
+  tool::probe
+  if [[ "${_DC_PROG[0]}" != "__MISSING__" ]]; then log::ok "compose: ${_DC_PROG[*]}"; else log::error "compose: MISSING"; fail=$((fail+1)); fi
+  # 3. 密钥长度（bash 3.2+ 兼容：不用associative array，避免 unbound variable）
+  secret::export_defaults
+  local secret_rows=(
+    "AIOT_JWT_SECRET 32"
+    "AIOT_INTERNAL_TOKEN 24"
+    "AIOT_EMQX_WEBHOOK_SECRET 24"
+    "EMQX_API_PASSWORD 12"
+  )
+  local row k min val
+  for row in "${secret_rows[@]}"; do
+    k="${row% *}"
+    min="${row#* }"
+    eval "val=\"\${${k}:-}\""
+    if (( ${#val} >= min )); then
+      log::ok "secret: $k len=${#val} >= $min"
+    else
+      log::error "secret: $k len=${#val} < $min (value MUST NOT contain change-me|default|public)"
+      fail=$((fail+1))
+    fi
+  done
+  unset row k min val secret_rows
+  # 4. compose语法
+  for m in infra main local admin-local ci prod staging staging-dev; do
+    if compose::config_test "$m" >/dev/null 2>&1; then log::ok "compose syntax: $m"
+    else log::error "compose syntax FAILED: $m"; fail=$((fail+1)); fi
+  done
+  # 5. 端口占用（未启动时不阻塞）
+  for p in 3306 6379 8848 1883 18083 8080; do
+    if verify::tcp 127.0.0.1 "$p" 1; then log::warn "port in use: $p (already running?)"
+    else log::ok "port free: $p"; fi
+  done
+  if (( fail == 0 )); then log::ok "🏥 DOCTOR PASSED (0 issues)"
+  else log::fatal "💥 DOCTOR FAILED: $fail issue(s)"; fi
+}
+
+cmd_logs()       { local mode="${1:-main}"; _logs "$mode" "${2:-}"; }
+cmd_ps()         { local mode="${1:-main}"; ps_print "$mode"; }
+cmd_verify()     { local mode="${1:-main}"; verify_poll "$mode"; }
+cmd_down() {
+  local target="${1:-all}"; shift || true
+  local volumes="false"
+  args::has_flag "--volumes" "$@" && volumes="true"
+  case "$target" in
+    all) compose::down_all "$volumes" ;;
+    infra|main|dev) compose::down infra "$volumes" ; [[ "$target" != "infra" ]] && compose::down main "$volumes" ;;
+    local|admin|admin-local|ci|prod|staging|staging-dev) compose::down "$target" "$volumes" ;;
+    *) usage; exit 2 ;;
+  esac
+}
+
+cmd_reset() {
+  local mode="${1:-}"; shift || true
+  local yes="false"
+  args::has_flag "--yes" "$@" && yes="true"
+  case "$mode" in
+    fresh)       reset::fresh "$yes" ;;
+    incremental) reset::incremental "$yes" ;;
+    *) log::fatal "reset 需要指定模式：fresh(全新部署) | incremental(增量更新)  详见 ./aiotctl help" ;;
+  esac
+}
+
+reset::fresh() {
+  local yes="$1"
+  log::banner "RESET = fresh（全新部署）"
+  log::warn "破坏性操作：停止全部栈 + 删除数据卷 + 删除全部镜像 + 清理构建缓存 + 从源码全量构建部署"
+  if [[ "$yes" != "true" ]]; then
+    printf "${C_RED}确认执行？将删除所有数据卷与镜像，且无法恢复 [y/N]: ${C_RST}"
+    read -r ans
+    [[ "$ans" == "y" || "$ans" == "Y" ]] || { log::info "已取消"; return 0; }
+  fi
+  compose::down_all true
+  log::section "prune images & build cache"
+  tool::docker image prune -a -f
+  tool::docker builder prune -a -f
+  build::jars
+  build::images local
+  compose::config_test local
+  compose::up local
+  local -a ports; ports=($(_ports_for_mode local))
+  log::section "TCP health poll (max 300s)"
+  if verify::health_poll local 300 "${ports[@]}"; then
+    log::ok "fresh deploy ready"; ps_print local
+  else
+    log::warn "poll timeout, check logs"; ps_print local; exit 2
+  fi
+}
+
+reset::incremental() {
+  local yes="$1"
+  log::banner "RESET = incremental（增量更新）"
+  log::info "停止全部栈（保留数据卷），拉取最新 ghcr.io 预构建镜像并启动"
+  compose::down_all false
+  compose::pull main
+  compose::config_test main
+  compose::up main
+  local -a ports; ports=($(_ports_for_mode main))
+  log::section "TCP health poll (max 300s)"
+  if verify::health_poll main 300 "${ports[@]}"; then
+    log::ok "incremental deploy ready"; ps_print main
+  else
+    log::warn "poll timeout, check logs"; ps_print main; exit 2
+  fi
+}
+
+cmd_test() {
+  local t="${1:-communication}"; shift || true
+  case "$t" in
+    communication) (cd "$AIOT_ROOT_DIR" && bash scripts/test_service_communication.sh "$@") ;;
+    e2e)           (cd "$AIOT_ROOT_DIR" && bash scripts/bootstrap_service_communication_ci.sh "$@") ;;
+    webhook)       (cd "$AIOT_ROOT_DIR" && bash scripts/test_provision_and_webhook.sh "$@") ;;
+    mqtt)          (cd "$AIOT_ROOT_DIR" && bash scripts/test_mqtt_data_parser_loop.sh "$@") ;;
+    shadow)        (cd "$AIOT_ROOT_DIR" && bash scripts/test_shadow_event_flow.sh "$@") ;;
+    pressure)      (cd "$AIOT_ROOT_DIR" && python3 scripts/perf_user_device_observability.py "$@") ;;
+    *) usage; exit 2 ;;
+  esac
+}
+
+cmd_drill() {
+  local d="${1:-rollback}"; shift || true
+  case "$d" in
+    rollback)      (cd "$AIOT_ROOT_DIR" && bash scripts/run_release_rollback_drill.sh "$@") ;;
+    canary)        cmd_canary staging aiot-home-service canary-test ;;
+    inject-fault)  (cd "$AIOT_ROOT_DIR" && bash scripts/inject_fault.sh "$@") ;;
+    *) usage; exit 2 ;;
+  esac
+}
+
+cmd_ai() {
+  local a="${1:-seed}"; shift || true
+  case "$a" in
+    seed)         (cd "$AIOT_ROOT_DIR" && bash training/scripts/seed_control_plane_legacy_tasks.sh "$@") ;;
+    verify)       (cd "$AIOT_ROOT_DIR" && bash scripts/verify_admin_local_ai_persistence.sh "$@") ;;
+    flow)         (cd "$AIOT_ROOT_DIR" && bash training/scripts/verify_ai_business_live_flow.sh "$@") ;;
+    mysql-check)  (cd "$AIOT_ROOT_DIR" && bash training/scripts/verify_mysql_constraints.sh "$@") ;;
+    migrate-gate) (cd "$AIOT_ROOT_DIR" && bash training/scripts/check_migration_gate.sh "$@") ;;
+    *) usage; exit 2 ;;
+  esac
+}
+
+cmd_observability() {
+  local sub="$1"
+  local mode="local-obs"
+  local wd
+  local -a services=(
+    prometheus
+    alertmanager
+    ops-router
+    loki
+    promtail
+    tempo
+    grafana
+    mysqld-exporter
+    redis-exporter
+  )
+  wd="$(compose::workdir "$mode")"
+  compose::files "$mode"
+  case "$sub" in
+    up)
+      secret::export_defaults
+      secret::load_file "${AIOT_ROOT_DIR}/compose/env/${AIOT_ENV}/runtime.env"
+      ( cd "$wd" && comp_exec "${_COMPOSE_FILES[@]}" up -d --no-deps "${services[@]}" )
+      ;;
+    down)
+      secret::export_defaults
+      secret::load_file "${AIOT_ROOT_DIR}/compose/env/${AIOT_ENV}/runtime.env"
+      ( cd "$wd" && comp_exec "${_COMPOSE_FILES[@]}" stop "${services[@]}" ) || true
+      ( cd "$wd" && comp_exec "${_COMPOSE_FILES[@]}" rm -f "${services[@]}" ) || true
+      ;;
+    status)
+      secret::export_defaults
+      ( cd "$wd" && comp_exec "${_COMPOSE_FILES[@]}" ps "${services[@]}" )
+      ;;
+    verify)
+      observability::verify
+      ;;
+    *)    usage; exit 2 ;;
+  esac
+}
+
+observability::verify() {
+  local -a endpoints=(
+    "prometheus http://localhost:9090/-/healthy"
+    "alertmanager http://localhost:9093/-/healthy"
+    "loki http://localhost:3100/ready"
+    "tempo http://localhost:3200/ready"
+    "grafana http://localhost:3000/api/health"
+  )
+  local attempts=20 delay=3 i ok name url code
+  log::section "observability health poll (max $((attempts*delay))s)"
+  for ((i=1; i<=attempts; i++)); do
+    ok=0
+    for ep in "${endpoints[@]}"; do
+      name="${ep%% *}"; url="${ep#* }"
+      code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 "${url}" || true)"
+      if [[ "${code}" == "200" ]]; then
+        log::ok "${name} ${url}"
+        ok=$((ok+1))
+      else
+        log::warn "${name} ${url} (http=${code})"
+      fi
+    done
+    if (( ok == ${#endpoints[@]} )); then
+      log::ok "observability stack ready"
+      return 0
+    fi
+    sleep "${delay}"
+  done
+  log::fatal "observability stack not ready in time"
+}
+
+cmd_release-health() {
+  # 契约：aiotctl release-health <svc> [svc...]；首参若为底层脚本 flag 则整体透传
+  if (( $# == 0 )); then log::fatal "release-health 需要至少一个服务名，或 -s <service>"; fi
+  case "${1:-}" in
+    -s|--service|-f|--compose-file|--url|--timeout|--interval|-h|--help)
+      ( cd "$AIOT_ROOT_DIR" && bash scripts/verify_release_health.sh "$@" )
+      return
+      ;;
+  esac
+  local svc
+  for svc in "$@"; do
+    log::section "release-health: ${svc}"
+    ( cd "$AIOT_ROOT_DIR" && bash scripts/verify_release_health.sh -s "${svc}" )
+  done
+}
+
+cmd_jvm-diagnostics() {
+  # 契约：aiotctl jvm-diagnostics <svc> [action]；或透传 --container/--pid/--action 等底层参数
+  case "${1:-}" in
+    --container|--pid|--action|--samples|--interval-ms|-h|--help|"")
+      ( cd "$AIOT_ROOT_DIR" && bash scripts/jvm_diagnostics.sh "$@" )
+      return
+      ;;
+  esac
+  local svc="${1}"; local action="${2:-thread-dump}"
+  ( cd "$AIOT_ROOT_DIR" && bash scripts/jvm_diagnostics.sh --container "${svc}" --action "${action}" )
+}
+
+cmd_log-query() { ( cd "$AIOT_ROOT_DIR" && bash scripts/log_query.sh "$@" ); }
+
+# ======================================================================
+# 入口分发
+# ======================================================================
+if (( $# == 0 )); then usage; exit 0; fi
+sub="$1"; shift || true
+case "$sub" in
+  -h|--help|help) usage; exit 0 ;;
+  infra|dev|local|admin|ci) "cmd_${sub}" "$@" ;;
+  build|deploy|migrate|canary|rollback|gate) "cmd_${sub}" "$@" ;;
+  reset) "cmd_${sub}" "$@" ;;
+  doctor|verify|logs|ps|down|release-health) "cmd_${sub}" "$@" ;;
+  log-query) cmd_log-query "$@" ;;
+  test|drill|ai|observability|jvm-diagnostics) "cmd_${sub}" "$@" ;;
+  *) log::fatal "unknown command: $sub  (see ./aiotctl help)" ;;
+esac
