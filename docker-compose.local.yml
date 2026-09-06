@@ -1,44 +1,143 @@
+networks:
+  aiot-net:
+    driver: bridge
+    driver_opts:
+      com.docker.network.driver.mtu: 1450
+
 services:
   aiot-gateway:
-    image: aiot-gateway:local-fixed
+    image: aiot-gateway:${AIOT_IMAGE_TAG:-local}
+    container_name: aiot-gateway
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        JAR_FILE: aiot-gateway/target/*.jar
+        APP_NAME: aiot-gateway
+    networks: [aiot-net]
+    deploy:
+      resources:
+        limits: { cpus: '1.0', memory: 1024M }
+        reservations: { cpus: '0.3', memory: 256M }
 
   aiot-home-service:
-    image: aiot-home-service:local
+    image: aiot-home-service:${AIOT_IMAGE_TAG:-local}
+    container_name: aiot-home-service
     build:
       context: .
       dockerfile: Dockerfile
       args:
         JAR_FILE: aiot-home-service/target/*.jar
+        APP_NAME: aiot-home-service
+    networks: [aiot-net]
+    deploy:
+      resources:
+        limits: { cpus: '1.0', memory: 768M }
+        reservations: { cpus: '0.3', memory: 256M }
 
   aiot-rule-engine:
-    image: aiot-rule-engine:local
+    image: aiot-rule-engine:${AIOT_IMAGE_TAG:-local}
+    container_name: aiot-rule-engine
     build:
       context: .
       dockerfile: Dockerfile
       args:
         JAR_FILE: aiot-rule-engine/target/*.jar
+        APP_NAME: aiot-rule-engine
+    networks: [aiot-net]
+    environment:
+      - AI_LLM_ENABLED=true
+      - AI_LLM_BASE_URL=http://aiot-ollama:11434
+      - AI_LLM_API_KEY=aiot-local
+      - AI_LLM_MODEL=qwen2.5:1.5b
+      - AI_LLM_TIMEOUT_MS=20000
+      - AI_LLM_NUM_PREDICT=512
+      - AI_LLM_NUM_CTX=1024
+      - AI_LLM_TEMPERATURE=0.2
+      - AI_LLM_CONCURRENCY=1
+      - AI_LLM_QUEUE_CAPACITY=64
+      - AIOT_AI_PERSISTENCE_MYSQL_ENABLED=true
+      - AIOT_AI_PERSISTENCE_MYSQL_URL=jdbc:mysql://aiot-mysql:3306/aiot_cloud?useUnicode=true&characterEncoding=utf-8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
+      - AIOT_AI_PERSISTENCE_MYSQL_USER=aiot_app
+      - AIOT_AI_PERSISTENCE_MYSQL_PASSWORD=${MYSQL_PASSWORD}
+    deploy:
+      resources:
+        limits: { cpus: '1.0', memory: 768M }
+        reservations: { cpus: '0.3', memory: 256M }
 
   aiot-shadow-service:
-    image: aiot-shadow-service:local-fixed
+    image: aiot-shadow-service:${AIOT_IMAGE_TAG:-local}
+    container_name: aiot-shadow-service
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        JAR_FILE: aiot-shadow-service/target/*.jar
+        APP_NAME: aiot-shadow-service
+    networks: [aiot-net]
+    deploy:
+      resources:
+        limits: { cpus: '0.8', memory: 768M }
+        reservations: { cpus: '0.2', memory: 128M }
 
   aiot-mqtt-adapter:
-    image: aiot-mqtt-adapter:local-fixed
+    image: aiot-mqtt-adapter:${AIOT_IMAGE_TAG:-local}
+    container_name: aiot-mqtt-adapter
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        JAR_FILE: aiot-mqtt-adapter/target/*.jar
+        APP_NAME: aiot-mqtt-adapter
+    networks: [aiot-net]
+    deploy:
+      resources:
+        limits: { cpus: '0.5', memory: 512M }
+        reservations: { cpus: '0.15', memory: 96M }
 
   aiot-data-parser:
-    image: aiot-data-parser:local-fixed
+    image: aiot-data-parser:${AIOT_IMAGE_TAG:-local}
+    container_name: aiot-data-parser
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        JAR_FILE: aiot-data-parser/target/*.jar
+        APP_NAME: aiot-data-parser
+    networks: [aiot-net]
+    deploy:
+      resources:
+        limits: { cpus: '0.5', memory: 512M }
+        reservations: { cpus: '0.15', memory: 96M }
 
   aiot-device-service:
-    image: aiot-device-service:local
+    image: aiot-device-service:${AIOT_IMAGE_TAG:-local}
+    container_name: aiot-device-service
     build:
       context: .
       dockerfile: Dockerfile
       args:
         JAR_FILE: aiot-device-service/target/*.jar
+        APP_NAME: aiot-device-service
+    networks: [aiot-net]
+    environment:
+      - AIOT_SECURITY_ALLOW_DIRECT_USER_JWT=true
+    deploy:
+      resources:
+        limits: { cpus: '1.0', memory: 768M }
+        reservations: { cpus: '0.3', memory: 256M }
 
   aiot-auth-service:
-    image: aiot-auth-service:local
+    image: aiot-auth-service:${AIOT_IMAGE_TAG:-local}
+    container_name: aiot-auth-service
     build:
       context: .
       dockerfile: Dockerfile
       args:
         JAR_FILE: aiot-auth-service/target/*.jar
+        APP_NAME: aiot-auth-service
+    networks: [aiot-net]
+    deploy:
+      resources:
+        limits: { cpus: '2.0', memory: 1536M }
+        reservations: { cpus: '0.5', memory: 384M }

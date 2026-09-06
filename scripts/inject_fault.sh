@@ -107,7 +107,8 @@ if [[ ! -f "${COMPOSE_FILE}" ]]; then
   exit 1
 fi
 
-if ! "${COMPOSE_CMD[@]}" -f "${COMPOSE_FILE}" config --services | grep -Fxq "${SERVICE}"; then
+services_list="$("${COMPOSE_CMD[@]}" -f "${COMPOSE_FILE}" config --services 2>/dev/null || true)"
+if ! grep -Fxq "${SERVICE}" <<< "${services_list}"; then
   echo "ERROR: compose 中不存在服务: ${SERVICE}"
   exit 1
 fi

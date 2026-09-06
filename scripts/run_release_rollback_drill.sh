@@ -13,6 +13,7 @@ usage() {
 可选参数:
   -r, --rollback-tag       回滚目标标签（默认自动读取 previous_image）
   -f, --compose-file       compose 文件路径（默认: docker-compose.yml）
+      --local              本地镜像模式（跳过 registry pull，改用本地镜像 tag 匹配）
   -m, --fault-mode         故障注入模式（stop-container | kill-container，默认: stop-container）
       --health-timeout     健康检查超时秒数（默认: 180）
       --verify-timeout     注入后故障验证超时秒数（默认: 30）
@@ -33,6 +34,7 @@ SERVICE=""
 RELEASE_TAG=""
 ROLLBACK_TAG=""
 COMPOSE_FILE="docker-compose.yml"
+LOCAL="0"
 FAULT_MODE="stop-container"
 HEALTH_TIMEOUT="180"
 VERIFY_TIMEOUT="30"
@@ -115,6 +117,10 @@ while [[ $# -gt 0 ]]; do
       COMPOSE_FILE="${2:-}"
       shift 2
       ;;
+    --local)
+      LOCAL="1"
+      shift
+      ;;
     -m|--fault-mode)
       FAULT_MODE="${2:-}"
       shift 2
@@ -166,13 +172,19 @@ fi
 REPORT_FILE="${DRILL_DIR}/report-${TRACE_ID}.json"
 TIMELINE_FILE="${DRILL_DIR}/timeline-${TRACE_ID}.jsonl"
 
+LOCAL_ARGS=()
+if [[ "${LOCAL}" == "1" ]]; then
+  LOCAL_ARGS+=(--local)
+fi
+
 emit_event "INFO" "init" "running" "开始执行发布回滚一键演练"
 
 emit_event "INFO" "gate_check" "running" "执行发布门禁检查"
 "${ROOT_DIR}/scripts/release_gate_check.sh" \
   --service "${SERVICE}" \
   --tag "${RELEASE_TAG}" \
-  --compose-file "${COMPOSE_FILE}"
+  --compose-file "${COMPOSE_FILE}" \
+  "${LOCAL_ARGS[@]}"
 emit_event "INFO" "gate_check" "success" "发布门禁检查通过"
 
 emit_event "INFO" "deploy" "running" "执行演练版本发布并验证健康"
@@ -180,7 +192,8 @@ emit_event "INFO" "deploy" "running" "执行演练版本发布并验证健康"
   --service "${SERVICE}" \
   --tag "${RELEASE_TAG}" \
   --compose-file "${COMPOSE_FILE}" \
-  --health-timeout "${HEALTH_TIMEOUT}"
+  --health-timeout "${HEALTH_TIMEOUT}" \
+  "${LOCAL_ARGS[@]}"
 emit_event "INFO" "deploy" "success" "演练版本发布成功"
 
 emit_event "WARN" "fault_injection" "running" "开始执行故障注入"
@@ -210,6 +223,7 @@ ROLLBACK_ARGS=(
   --health-timeout "${HEALTH_TIMEOUT}"
   --trace-id "${TRACE_ID}"
   --operator "${OPERATOR}"
+  "${LOCAL_ARGS[@]}"
 )
 if [[ -n "${ROLLBACK_TAG}" ]]; then
   ROLLBACK_ARGS+=(--to-tag "${ROLLBACK_TAG}")

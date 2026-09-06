@@ -12,6 +12,7 @@ usage() {
 可选参数:
   -t, --to-tag         回滚目标镜像标签（例如: v1.2.2）
   -f, --compose-file   compose 文件路径（默认: docker-compose.yml）
+      --local          本地镜像模式（跳过 registry pull，改用本地镜像 tag 匹配）
       --skip-verify    跳过回滚后健康验证
       --health-timeout 健康验证超时时间（秒，默认: 180）
       --trace-id       留痕 Trace ID（默认自动生成）
@@ -32,9 +33,14 @@ EOF
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 cd "${ROOT_DIR}"
 
+# 复用共享库的密钥默认值，确保 docker compose up 注入 AIOT_JWT_SECRET 等（否则服务启动失败）
+source "${ROOT_DIR}/scripts/lib/common.sh"
+secret::export_defaults
+
 SERVICE=""
 ROLLBACK_TAG=""
 COMPOSE_FILE="docker-compose.yml"
+LOCAL="0"
 SKIP_VERIFY="0"
 HEALTH_TIMEOUT="180"
 TRACE_ID=""
@@ -114,6 +120,10 @@ while [[ $# -gt 0 ]]; do
       COMPOSE_FILE="${2:-}"
       shift 2
       ;;
+    --local)
+      LOCAL="1"
+      shift
+      ;;
     --skip-verify)
       SKIP_VERIFY="1"
       shift
@@ -181,7 +191,18 @@ if [[ ! -f "${COMPOSE_FILE}" ]]; then
   exit 1
 fi
 
-if ! "${COMPOSE_CMD[@]}" -f "${COMPOSE_FILE}" config --services | grep -Fxq "${SERVICE}"; then
+# 本地模式叠加 docker-compose.local.yml，使服务镜像指向本地 aiot-*:<tag>
+COMPOSE_FILES=(-f "${COMPOSE_FILE}")
+if [[ "${LOCAL}" == "1" ]]; then
+  if [[ ! -f "docker-compose.local.yml" ]]; then
+    echo "ERROR: compose 文件不存在: docker-compose.local.yml"
+    exit 1
+  fi
+  COMPOSE_FILES+=(-f "docker-compose.local.yml")
+fi
+
+services_list="$("${COMPOSE_CMD[@]}" "${COMPOSE_FILES[@]}" config --services 2>/dev/null || true)"
+if ! grep -Fxq "${SERVICE}" <<< "${services_list}"; then
   echo "ERROR: compose 中不存在服务: ${SERVICE}"
   exit 1
 fi
@@ -218,7 +239,7 @@ if [[ -z "${ROLLBACK_TAG}" ]]; then
   fi
 fi
 
-CURRENT_CID="$("${COMPOSE_CMD[@]}" -f "${COMPOSE_FILE}" ps -q "${SERVICE}" || true)"
+CURRENT_CID="$("${COMPOSE_CMD[@]}" "${COMPOSE_FILES[@]}" ps -q "${SERVICE}" || true)"
 if [[ -n "${CURRENT_CID}" ]]; then
   CURRENT_IMAGE="$(docker inspect --format '{{.Config.Image}}' "${CURRENT_CID}" 2>/dev/null || true)"
   if [[ -n "${CURRENT_IMAGE}" ]]; then
@@ -228,15 +249,34 @@ if [[ -n "${CURRENT_CID}" ]]; then
   fi
 fi
 
-emit_event "INFO" "rollback_pull" "running" "开始拉取目标镜像"
+emit_event "INFO" "rollback_pull" "running" "开始准备目标镜像"
 echo "开始回滚服务: ${SERVICE}"
 echo "目标标签: ${ROLLBACK_TAG}"
 
-IMAGE_TAG="${ROLLBACK_TAG}" "${COMPOSE_CMD[@]}" -f "${COMPOSE_FILE}" pull "${SERVICE}"
-emit_event "INFO" "rollback_pull" "success" "目标镜像拉取完成"
-emit_event "INFO" "rollback_up" "running" "开始重建目标服务容器"
-IMAGE_TAG="${ROLLBACK_TAG}" "${COMPOSE_CMD[@]}" -f "${COMPOSE_FILE}" up -d --no-deps "${SERVICE}"
-emit_event "INFO" "rollback_up" "success" "服务容器已重建"
+if [[ "${LOCAL}" == "1" ]]; then
+  # 本地模式：跳过 registry pull，校验/准备本地镜像 tag，然后直接 up
+  local_image="${SERVICE}:${ROLLBACK_TAG}"
+  if ! docker image inspect "${local_image}" >/dev/null 2>&1; then
+    base_image="${SERVICE}:local"
+    if docker image inspect "${base_image}" >/dev/null 2>&1; then
+      echo "本地镜像 ${local_image} 不存在，从 ${base_image} 复制 tag"
+      docker tag "${base_image}" "${local_image}"
+    else
+      echo "ERROR: 本地镜像不存在: ${local_image} 且无 ${base_image} 兜底"
+      exit 1
+    fi
+  fi
+  emit_event "INFO" "rollback_pull" "success" "本地目标镜像已就绪"
+  emit_event "INFO" "rollback_up" "running" "开始重建目标服务容器"
+  AIOT_IMAGE_TAG="${ROLLBACK_TAG}" "${COMPOSE_CMD[@]}" "${COMPOSE_FILES[@]}" up -d --no-deps "${SERVICE}"
+  emit_event "INFO" "rollback_up" "success" "服务容器已重建"
+else
+  IMAGE_TAG="${ROLLBACK_TAG}" "${COMPOSE_CMD[@]}" "${COMPOSE_FILES[@]}" pull "${SERVICE}"
+  emit_event "INFO" "rollback_pull" "success" "目标镜像拉取完成"
+  emit_event "INFO" "rollback_up" "running" "开始重建目标服务容器"
+  IMAGE_TAG="${ROLLBACK_TAG}" "${COMPOSE_CMD[@]}" "${COMPOSE_FILES[@]}" up -d --no-deps "${SERVICE}"
+  emit_event "INFO" "rollback_up" "success" "服务容器已重建"
+fi
 
 echo "回滚完成: ${SERVICE} -> tag=${ROLLBACK_TAG}"
 

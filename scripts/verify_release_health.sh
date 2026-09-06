@@ -25,8 +25,14 @@ EOF
 default_health_url() {
   local service="$1"
   case "${service}" in
-    aiot-gateway) echo "http://127.0.0.1:8080/actuator/health/readiness" ;;
-    nacos) echo "http://127.0.0.1:8848/nacos/v1/console/health/readiness" ;;
+    aiot-gateway)        echo "http://127.0.0.1:8080/actuator/health/readiness" ;;
+    aiot-device-service) echo "http://127.0.0.1:8081/actuator/health/readiness" ;;
+    aiot-auth-service)   echo "http://127.0.0.1:8082/actuator/health/readiness" ;;
+    aiot-home-service)   echo "http://127.0.0.1:8083/actuator/health/readiness" ;;
+    aiot-rule-engine)    echo "http://127.0.0.1:8084/actuator/health/readiness" ;;
+    aiot-mqtt-adapter)   echo "http://127.0.0.1:8085/actuator/health/readiness" ;;
+    aiot-data-parser)    echo "http://127.0.0.1:8086/actuator/health/readiness" ;;
+    aiot-shadow-service) echo "http://127.0.0.1:8087/actuator/health/readiness" ;;
     *) echo "" ;;
   esac
 }
@@ -105,7 +111,8 @@ if [[ ! -f "${COMPOSE_FILE}" ]]; then
   exit 1
 fi
 
-if ! "${COMPOSE_CMD[@]}" -f "${COMPOSE_FILE}" config --services | grep -Fxq "${SERVICE}"; then
+services_list="$("${COMPOSE_CMD[@]}" -f "${COMPOSE_FILE}" config --services 2>/dev/null || true)"
+if ! grep -Fxq "${SERVICE}" <<< "${services_list}"; then
   echo "ERROR: compose 中不存在服务: ${SERVICE}"
   exit 1
 fi

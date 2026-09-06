@@ -12,6 +12,7 @@ usage() {
 
 可选参数:
   -f, --compose-file   compose 文件路径（默认: docker-compose.yml）
+      --local          本地镜像模式（跳过 registry pull，改用本地镜像 tag 校验）
       --skip-baseline  跳过发布前基线健康检查
       --baseline-timeout 基线健康检查超时（秒，默认: 60）
   -h, --help           显示帮助
@@ -31,6 +32,7 @@ cd "${ROOT_DIR}"
 SERVICE=""
 IMAGE_TAG=""
 COMPOSE_FILE="docker-compose.yml"
+LOCAL="0"
 SKIP_BASELINE="0"
 BASELINE_TIMEOUT="60"
 
@@ -47,6 +49,10 @@ while [[ $# -gt 0 ]]; do
     -f|--compose-file)
       COMPOSE_FILE="${2:-}"
       shift 2
+      ;;
+    --local)
+      LOCAL="1"
+      shift
       ;;
     --skip-baseline)
       SKIP_BASELINE="1"
@@ -99,19 +105,41 @@ if [[ ! -f "${COMPOSE_FILE}" ]]; then
   exit 1
 fi
 
-if ! "${COMPOSE_CMD[@]}" -f "${COMPOSE_FILE}" config --services | grep -Fxq "${SERVICE}"; then
+# 本地模式叠加 docker-compose.local.yml，使服务镜像指向本地 aiot-*:<tag>
+COMPOSE_FILES=(-f "${COMPOSE_FILE}")
+if [[ "${LOCAL}" == "1" ]]; then
+  if [[ ! -f "docker-compose.local.yml" ]]; then
+    echo "ERROR: compose 文件不存在: docker-compose.local.yml"
+    exit 1
+  fi
+  COMPOSE_FILES+=(-f "docker-compose.local.yml")
+fi
+
+# 先捕获服务清单再单独 grep，避免 pipefail 下 `docker compose ... | grep -q`
+# 因 grep 提前退出触发上游 SIGPIPE 导致 pipeline 被误判为失败
+services_list="$("${COMPOSE_CMD[@]}" "${COMPOSE_FILES[@]}" config --services 2>/dev/null || true)"
+if ! grep -Fxq "${SERVICE}" <<< "${services_list}"; then
   echo "ERROR: compose 中不存在服务: ${SERVICE}"
   exit 1
 fi
 
-service_rendered="$("${COMPOSE_CMD[@]}" -f "${COMPOSE_FILE}" config 2>/dev/null | sed -n "/^[[:space:]]${SERVICE}:/,/^[^[:space:]]/p")"
-if ! grep -q "healthcheck:" <<< "${service_rendered}"; then
+# 用 JSON 精确校验服务是否配置 healthcheck，避免 sed 解析 YAML 缩进脆弱导致的误判
+if ! "${COMPOSE_CMD[@]}" "${COMPOSE_FILES[@]}" config --format json 2>/dev/null | \
+  python3 -c 'import json,sys; d=json.load(sys.stdin); s=d["services"].get(sys.argv[1]); sys.exit(0 if s and "healthcheck" in s else 1)' "${SERVICE}"; then
   echo "ERROR: ${SERVICE} 缺少 healthcheck 配置，禁止发布"
   exit 1
 fi
 
-echo "[Gate] 验证目标镜像可拉取: ${SERVICE}:${IMAGE_TAG}"
-IMAGE_TAG="${IMAGE_TAG}" "${COMPOSE_CMD[@]}" -f "${COMPOSE_FILE}" pull "${SERVICE}" >/dev/null
+if [[ "${LOCAL}" == "1" ]]; then
+  echo "[Gate] 本地模式：校验基线本地镜像存在: ${SERVICE}:local"
+  if ! docker image inspect "${SERVICE}:local" >/dev/null 2>&1; then
+    echo "ERROR: 本地基线镜像不存在: ${SERVICE}:local"
+    exit 1
+  fi
+else
+  echo "[Gate] 验证目标镜像可拉取: ${SERVICE}:${IMAGE_TAG}"
+  IMAGE_TAG="${IMAGE_TAG}" "${COMPOSE_CMD[@]}" "${COMPOSE_FILES[@]}" pull "${SERVICE}" >/dev/null
+fi
 
 if [[ "${SKIP_BASELINE}" == "1" ]]; then
   echo "[Gate] 已跳过基线健康检查（--skip-baseline）"
@@ -119,7 +147,8 @@ if [[ "${SKIP_BASELINE}" == "1" ]]; then
   exit 0
 fi
 
-if "${COMPOSE_CMD[@]}" -f "${COMPOSE_FILE}" ps -q "${SERVICE}" | grep -q .; then
+running_cid="$("${COMPOSE_CMD[@]}" "${COMPOSE_FILES[@]}" ps -q "${SERVICE}" || true)"
+if [[ -n "${running_cid}" ]]; then
   echo "[Gate] 执行发布前基线健康检查: ${SERVICE}"
   "${ROOT_DIR}/scripts/verify_release_health.sh" \
     --service "${SERVICE}" \
