@@ -1,3 +1,10 @@
+---
+status: in-progress
+owner: 交付负责人
+fact_source: README.md + 专项文档
+updated_at: 2026-09-09
+---
+
 # AI-native M0 实施蓝图
 
 状态：`planned`
@@ -117,3 +124,6 @@
 ## 9. 关联文档
 - 产品路线图：[`product/AIoT_AI_Native_Product_Roadmap`](product/AIoT_AI_Native_Product_Roadmap)
 - 交付拆解：[`ai-native-delivery-backlog.md`](ai-native-delivery-backlog.md)
+- 最小学习闭环架构：[`https://github.com/aidencck/AIOT_Project/blob/main/docs/architecture/AIOT_MINIMAL_CLOSED_LOOP_AI_LEARNING_SYSTEM.md`](https://github.com/aidencck/AIOT_Project/blob/main/docs/architecture/AIOT_MINIMAL_CLOSED_LOOP_AI_LEARNING_SYSTEM.md)
+- 工程化与应用落地总方案：[`https://github.com/aidencck/AIOT_Project/blob/main/docs/architecture/AIOT_MINIMAL_CLOSED_LOOP_AI_ENGINEERING_AND_APPLICATION_DELIVERY_PLAN.md`](https://github.com/aidencck/AIOT_Project/blob/main/docs/architecture/AIOT_MINIMAL_CLOSED_LOOP_AI_ENGINEERING_AND_APPLICATION_DELIVERY_PLAN.md)
+- 领域模型训练与微调方案：[`https://github.com/aidencck/AIOT_Project/blob/main/docs/architecture/AIOT_DOMAIN_MODEL_TRAINING_AND_FINETUNING_PLAN.md`](https://github.com/aidencck/AIOT_Project/blob/main/docs/architecture/AIOT_DOMAIN_MODEL_TRAINING_AND_FINETUNING_PLAN.md)

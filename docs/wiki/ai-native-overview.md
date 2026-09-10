@@ -1,3 +1,10 @@
+---
+status: in-progress
+owner: 交付负责人
+fact_source: README.md + 专项文档
+updated_at: 2026-09-09
+---
+
 # AI-native 规划总览
 
 状态：`planned`
@@ -11,6 +18,9 @@
 - 产品路线图：[`product/AIoT_AI_Native_Product_Roadmap`](product/AIoT_AI_Native_Product_Roadmap)
 - M0 实施蓝图：[`ai-native-m0-blueprint.md`](ai-native-m0-blueprint.md)
 - 交付拆解与 Backlog：[`ai-native-delivery-backlog.md`](ai-native-delivery-backlog.md)
+- 最小学习闭环架构：[`https://github.com/aidencck/AIOT_Project/blob/main/docs/architecture/AIOT_MINIMAL_CLOSED_LOOP_AI_LEARNING_SYSTEM.md`](https://github.com/aidencck/AIOT_Project/blob/main/docs/architecture/AIOT_MINIMAL_CLOSED_LOOP_AI_LEARNING_SYSTEM.md)
+- 工程化与应用落地总方案：[`https://github.com/aidencck/AIOT_Project/blob/main/docs/architecture/AIOT_MINIMAL_CLOSED_LOOP_AI_ENGINEERING_AND_APPLICATION_DELIVERY_PLAN.md`](https://github.com/aidencck/AIOT_Project/blob/main/docs/architecture/AIOT_MINIMAL_CLOSED_LOOP_AI_ENGINEERING_AND_APPLICATION_DELIVERY_PLAN.md)
+- 领域模型训练与微调方案：[`https://github.com/aidencck/AIOT_Project/blob/main/docs/architecture/AIOT_DOMAIN_MODEL_TRAINING_AND_FINETUNING_PLAN.md`](https://github.com/aidencck/AIOT_Project/blob/main/docs/architecture/AIOT_DOMAIN_MODEL_TRAINING_AND_FINETUNING_PLAN.md)
 
 ## 建设范围
 - `M0`：事件模型、规则引擎最小化产品化、知识切片、设备诊断 Copilot

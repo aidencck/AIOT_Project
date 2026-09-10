@@ -1,3 +1,10 @@
+---
+status: archived
+owner: 交付负责人
+fact_source: README.md + 专项文档
+updated_at: 2026-09-09
+---
+
 # 2026Q3 技术路线图（版本化）v1.0.0
 
 状态：`draft-approved-ready`

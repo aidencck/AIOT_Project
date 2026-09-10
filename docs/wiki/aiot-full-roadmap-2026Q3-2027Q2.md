@@ -1,3 +1,10 @@
+---
+status: planned
+owner: 架构组
+fact_source: README.md + 专项文档
+updated_at: 2026-09-09
+---
+
 # AIOT 全项目路线图（2026Q3-2027Q2）
 
 状态：`planned`
@@ -22,8 +29,8 @@
 - 本路线图包含：`产品经营`、`AI-native`、`平台架构`、`稳定性交付`、`组织治理` 五条主线。
 - 本路线图不直接展开：端侧模型部署、复杂财务分账、大规模训练平台、自助 BI、复杂边缘自治 Agent。
 - 本路线图默认以现有仓库为主事实来源，并通过专项文档承接细节设计：
-  - `AI-native`：[`AIoT_AI_Native_Product_Roadmap`](../product/AIoT_AI_Native_Product_Roadmap.md)
-  - `管理后台`：[`AIoT_Admin_Backoffice_Roadmap`](../product/AIoT_Admin_Backoffice_Roadmap.md)
+  - `AI-native`：[`AIoT_AI_Native_Product_Roadmap`](https://github.com/aidencck/AIOT_Project/blob/main/docs/product/AIoT_AI_Native_Product_Roadmap.md)
+  - `管理后台`：[`AIoT_Admin_Backoffice_Roadmap`](https://github.com/aidencck/AIOT_Project/blob/main/docs/product/AIoT_Admin_Backoffice_Roadmap.md)
   - `技术版本`：[`2026Q3-technology-roadmap-v1.1.0.md`](2026Q3-technology-roadmap-v1.1.0.md)
 
 ## 4. Endgame（终局）
@@ -311,17 +318,17 @@
 - 全项目总路线图：
   - [`aiot-full-roadmap-2026Q3-2027Q2.md`](aiot-full-roadmap-2026Q3-2027Q2.md)
 - AI-native 专项：
-  - [`AIoT_AI_Native_Product_Roadmap`](../product/AIoT_AI_Native_Product_Roadmap.md)
+  - [`AIoT_AI_Native_Product_Roadmap`](https://github.com/aidencck/AIOT_Project/blob/main/docs/product/AIoT_AI_Native_Product_Roadmap.md)
   - [`ai-native-overview.md`](ai-native-overview.md)
   - [`ai-native-m0-blueprint.md`](ai-native-m0-blueprint.md)
   - [`ai-native-delivery-backlog.md`](ai-native-delivery-backlog.md)
 - 管理后台专项：
-  - [`AIoT_Admin_Backoffice_Roadmap`](../product/AIoT_Admin_Backoffice_Roadmap.md)
-  - [`AIoT_Admin_Backoffice_Version_Iteration_Plan`](../product/AIoT_Admin_Backoffice_Version_Iteration_Plan.md)
+  - [`AIoT_Admin_Backoffice_Roadmap`](https://github.com/aidencck/AIOT_Project/blob/main/docs/product/AIoT_Admin_Backoffice_Roadmap.md)
+  - [`AIoT_Admin_Backoffice_Version_Iteration_Plan`](https://github.com/aidencck/AIOT_Project/blob/main/docs/product/AIoT_Admin_Backoffice_Version_Iteration_Plan.md)
 - 技术版本专项：
   - [`2026Q3-technology-roadmap-v1.1.0.md`](2026Q3-technology-roadmap-v1.1.0.md)
 - 架构交付摘要：
-  - [`A04_演进路线与里程碑`](../architecture-deliverables/A04_演进路线与里程碑.md)
+  - [`A04_演进路线与里程碑`](https://github.com/aidencck/AIOT_Project/blob/main/docs/architecture-deliverables/A04_演进路线与里程碑.md)
 
 ## 16. 推荐执行顺序
 

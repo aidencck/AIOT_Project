@@ -1,3 +1,10 @@
+---
+status: archived
+owner: 交付负责人
+fact_source: README.md
+updated_at: 2026-09-09
+---
+
 # AIoT 后端架构版本迭代与实施演进规划
 
 为了将前期的领域驱动设计、数据库架构以及高性能部署方案真正落地，本方案将整个 AIoT 平台的演进划分为三个核心大版本（V1.0 MVP, V2.0 高可用, V3.0 海量规模）。

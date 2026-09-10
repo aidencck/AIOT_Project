@@ -1,3 +1,10 @@
+---
+status: in-progress
+owner: 交付负责人
+fact_source: README.md + 专项文档
+updated_at: 2026-09-09
+---
+
 # AI-native 交付拆解与 Backlog
 
 状态：`planned`
@@ -7,6 +14,7 @@
 - `Milestone`：版本目标
 - `Sprint`：双周迭代
 - `Story/Task`：具体交付项
+- 上位落地方案：[`https://github.com/aidencck/AIOT_Project/blob/main/docs/architecture/AIOT_MINIMAL_CLOSED_LOOP_AI_ENGINEERING_AND_APPLICATION_DELIVERY_PLAN.md`](https://github.com/aidencck/AIOT_Project/blob/main/docs/architecture/AIOT_MINIMAL_CLOSED_LOOP_AI_ENGINEERING_AND_APPLICATION_DELIVERY_PLAN.md)
 
 ## 2. 当前版本
 - 目标版本：`AI-native M0`

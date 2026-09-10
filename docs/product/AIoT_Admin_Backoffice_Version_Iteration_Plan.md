@@ -1,3 +1,10 @@
+---
+status: in-progress
+owner: 产研负责人
+fact_source: README.md + 专项文档
+updated_at: 2026-09-09
+---
+
 # AIoT 管理后台版本迭代计划（M0-M2）
 
 ## 1. 版本策略

@@ -1,3 +1,10 @@
+---
+status: current
+owner: 产研负责人
+fact_source: README.md + 产品定义
+updated_at: 2026-09-09
+---
+
 # AIoT平台用户账号系统产品规划文档
 
 ## 1. 前提 (Premise)

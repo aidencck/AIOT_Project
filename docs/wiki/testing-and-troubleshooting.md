@@ -1,6 +1,11 @@
-# 测试与排障
+---
+status: current
+owner: 架构组
+fact_source: 代码 + docker-compose.yml + pom.xml
+updated_at: 2026-09-09
+---
 
-最后更新：`2026-04-30`
+# 测试与排障
 
 ## 构建与验证
 
@@ -32,6 +37,8 @@ mvn clean install -DskipTests
 - 最小发布闭环：`scripts/release_canary_with_rollback.sh`
 - 运行手册：`docs/runbooks/single-service-rollback.md`
 - 演练模板：`docs/runbooks/release-drill-template.md`
+- AI 持久化迁移：`docs/runbooks/ai-persistence-migration.md`
+- AI 持久化切换清单：`docs/runbooks/ai-persistence-rollout-checklist.md`
 
 建议：每月至少一次“发布失败 -> 回滚 -> 恢复验证”演练，并归档复盘记录。
 

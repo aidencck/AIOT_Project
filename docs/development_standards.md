@@ -1,3 +1,10 @@
+---
+status: current
+owner: 架构组
+fact_source: 代码 + 团队约定
+updated_at: 2026-09-09
+---
+
 # AIoT 后端全局开发与协同规范 (Development Standards)
 
 > 作为架构师，建立统一的开发规范是降低沟通成本、提升系统可维护性与代码质量的“第一性原理”。本规范旨在为 AIoT 后端研发团队提供多维度的行为准则与技术约束。

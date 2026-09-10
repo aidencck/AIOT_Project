@@ -1,3 +1,10 @@
+---
+status: in-progress
+owner: 产研负责人
+fact_source: README.md + 专项文档
+updated_at: 2026-09-09
+---
+
 # AIoT 管理后台产品路线图（最小闭环导向）
 
 ## 1. Premise（前提）
@@ -92,7 +99,7 @@ flowchart LR
 
 ## 12. 与全项目路线图的映射
 
-- 上位路线图：[`../wiki/aiot-full-roadmap-2026Q3-2027Q2.md`](../wiki/aiot-full-roadmap-2026Q3-2027Q2.md)
+- 上位路线图：[`https://github.com/aidencck/AIOT_Project/blob/main/docs/wiki/aiot-full-roadmap-2026Q3-2027Q2.md`](https://github.com/aidencck/AIOT_Project/blob/main/docs/wiki/aiot-full-roadmap-2026Q3-2027Q2.md)
 - 本文档定位：
   - 作为“管理后台专项路线图”，承接全项目路线图中的产品经营、运营闭环、审计治理和经营看板建设。
 - 阶段对应关系：

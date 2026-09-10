@@ -1,3 +1,10 @@
+---
+status: archived
+owner: 架构组
+fact_source: 代码 + pom.xml
+updated_at: 2026-09-09
+---
+
 # AIoT 云端平台技术选型报告 (Technology Selection)
 
 ## 1. 架构选型核心定义

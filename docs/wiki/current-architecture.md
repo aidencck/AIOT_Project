@@ -1,6 +1,11 @@
-# 当前架构（current）
+---
+status: current
+owner: 架构组
+fact_source: 代码 + docker-compose.yml + pom.xml
+updated_at: 2026-09-09
+---
 
-最后更新：`2026-04-30`
+# 当前架构（current）
 
 ## 一句话概览
 
@@ -17,6 +22,7 @@ AIOT-java 当前为 Maven 多模块 + Spring Boot 微服务架构，主运行面
 - `aiot-mqtt-adapter`：MQTT 适配骨架（可运行，能力待产品化）
 - `aiot-data-parser`：数据解析骨架（可运行，能力待产品化）
 - `aiot-common`：`Result` 统一响应、全局异常处理、TraceId、跨服务内部鉴权组件
+- `aiot-db-migrator`：Flyway 数据库迁移模块，负责 schema 版本化迁移（独立 Maven 模块）
 
 ## 部署拓扑（当前）
 

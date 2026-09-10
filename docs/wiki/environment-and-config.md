@@ -1,3 +1,10 @@
+---
+status: current
+owner: 架构组
+fact_source: 代码 + docker-compose.yml + pom.xml
+updated_at: 2026-09-09
+---
+
 # 环境与配置
 
 ## 运行前置
@@ -30,7 +37,7 @@
 
 说明：
 - `aiot-home-service` 默认 `8083`，与 EMQX WebSocket 在“宿主机端口”上潜在冲突；当前 Compose 未暴露 home 端口，因此不会直接冲突。
-- `aiot-shadow-service` 代码默认端口为 `8083`，但 Compose 通过 `SERVER_PORT=8087` 覆盖。
+- `aiot-shadow-service` 代码默认端口即为 `8087`（`application.yml` 的 `server.port=8087`），与 Home Service `8083` 不冲突。
 
 ## 常用启动方式
 

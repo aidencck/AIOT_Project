@@ -1,3 +1,10 @@
+---
+status: archived
+owner: 架构组
+fact_source: 代码
+updated_at: 2026-09-09
+---
+
 # AIoT 后端基础组件库说明 (aiot-common)
 
 `aiot-common` 是 AIoT 微服务体系的基础设施组件库，旨在为所有上层微服务（如 Gateway, Device, Auth 等）提供一致的编码规范、统一响应格式以及全局异常处理机制。

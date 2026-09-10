@@ -1,3 +1,10 @@
+---
+status: archived
+owner: 架构组
+fact_source: 代码
+updated_at: 2026-09-09
+---
+
 # AIoT 后端领域驱动设计 (DDD) 与 API 契约定义
 
 ## 1. 核心领域划分 (Bounded Contexts)

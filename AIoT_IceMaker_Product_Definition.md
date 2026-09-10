@@ -1,3 +1,10 @@
+---
+status: current
+owner: 产研负责人
+fact_source: README.md + 产品定义
+updated_at: 2026-09-09
+---
+
 # 智能制冰机 AIoT 产品定义与规划文档 (0-1阶段)
 
 ## 1. 架构定义与战略方向

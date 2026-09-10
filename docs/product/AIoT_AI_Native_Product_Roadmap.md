@@ -1,3 +1,10 @@
+---
+status: in-progress
+owner: 产研负责人
+fact_source: README.md + 专项文档
+updated_at: 2026-09-09
+---
+
 # AIoT AI-native 产品路线图
 
 ## 1. Premise（前提）
@@ -365,7 +372,7 @@ sequenceDiagram
 
 ## 20. 与全项目路线图的映射
 
-- 上位路线图：[`../wiki/aiot-full-roadmap-2026Q3-2027Q2.md`](../wiki/aiot-full-roadmap-2026Q3-2027Q2.md)
+- 上位路线图：[`https://github.com/aidencck/AIOT_Project/blob/main/docs/wiki/aiot-full-roadmap-2026Q3-2027Q2.md`](https://github.com/aidencck/AIOT_Project/blob/main/docs/wiki/aiot-full-roadmap-2026Q3-2027Q2.md)
 - 本文档定位：
   - 作为“AI-native 专项路线图”，承接全项目路线图中的智能域建设，不替代全项目总纲。
 - 阶段对应关系：

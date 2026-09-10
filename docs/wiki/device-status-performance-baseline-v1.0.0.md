@@ -1,3 +1,10 @@
+---
+status: archived
+owner: 交付负责人
+fact_source: 压测数据 + 专项文档
+updated_at: 2026-09-09
+---
+
 # 设备状态上报链路性能基线报告 v1.0.0
 
 状态：`baseline-defined`

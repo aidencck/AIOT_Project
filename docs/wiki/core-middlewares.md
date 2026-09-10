@@ -1,3 +1,10 @@
+---
+status: current
+owner: 架构组
+fact_source: 代码 + docker-compose.yml + pom.xml
+updated_at: 2026-09-09
+---
+
 # AIOT-java 核心中间件梳理
 
 ## 1. 文档目的
@@ -12,6 +19,9 @@
 | Redis 7 | 缓存与事件流基础（含 Redis Stream） | Docker Compose 独立服务 `redis` | 6379 |
 | Nacos 2.3.2 | 服务注册与发现 | Docker Compose 独立服务 `nacos` | 8848, 9848 |
 | EMQX 5.3.0 | 设备 MQTT 接入与连接管理 | Docker Compose 独立服务 `emqx` | 1883, 8083, 18083 |
+| Ollama | 本地 AI 推理（AI 诊断链路 LLM） | Docker Compose 独立服务 `ollama` | 见 compose |
+| Prometheus / Alertmanager / Grafana / Loki / Promtail / Tempo | 可观测性栈（指标/告警/可视化/日志/链路） | Docker Compose 独立服务 | 见 compose |
+| mysqld-exporter / redis-exporter / cadvisor | 中间件与容器指标导出 | Docker Compose 独立服务 | 见 compose |
 
 ## 3. 中间件落地证据
 

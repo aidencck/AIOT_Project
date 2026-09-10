@@ -1,3 +1,10 @@
+---
+status: archived
+owner: 产研负责人
+fact_source: README.md
+updated_at: 2026-09-09
+---
+
 # AIoT 后端 MVP (最小可行性产品) 核心功能梳理
 
 ## 1. 架构定义与 MVP 边界 (Premise & Boundaries)

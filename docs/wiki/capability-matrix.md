@@ -1,6 +1,11 @@
-# 能力矩阵
+---
+status: current
+owner: 架构组
+fact_source: 代码 + docker-compose.yml + pom.xml
+updated_at: 2026-09-09
+---
 
-最后更新：`2026-04-30`
+# 能力矩阵
 
 ## 当前状态总览
 

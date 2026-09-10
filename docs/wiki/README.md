@@ -1,9 +1,14 @@
+---
+status: current
+owner: 架构组
+fact_source: docs/ + 专项文档
+updated_at: 2026-09-09
+---
+
 # AIOT-java Wiki（本地）
 
 本目录用于维护与代码现状同步的 Wiki 文档，作为主仓库 `README.md` 的延伸说明。  
 核心目标是区分“当前已实现能力”和“目标态规划能力”，减少文档与代码漂移。
-
-最后更新：`2026-05-07`
 
 ## 当前状态快照（2026-04）
 
@@ -58,6 +63,8 @@
 ### L2 当前运行基线（优先阅读）
 
 - 架构现状：[`current-architecture.md`](current-architecture.md)
+- 云原生成熟度与多租户/多地域判断：[`cloud-native-maturity-and-tenant-region-analysis.md`](cloud-native-maturity-and-tenant-region-analysis.md)
+- 架构学习手册：[`architecture-learning-map.md`](architecture-learning-map.md)
 - 核心中间件：[`core-middlewares.md`](core-middlewares.md)
 - 能力矩阵：[`capability-matrix.md`](capability-matrix.md)
 - 系统优化路线：[`system-optimization-roadmap.md`](system-optimization-roadmap.md)
