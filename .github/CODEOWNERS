@@ -1,0 +1,38 @@
+# AIOT 代码归属（Code Owners）。
+# owner 需按团队实际分工替换——当前项目唯一维护者为 @aidencck。
+# 匹配规则：GitHub 采用「最后匹配」策略，路径越具体优先级越高，最底部 `*` 为兜底。
+
+# 工程基建与 CI/CD
+/.github/                    @aidencck
+/scripts/                    @aidencck
+/Dockerfile                  @aidencck
+/docker-compose*.yml         @aidencck
+/compose/                    @aidencck
+/monitoring/                 @aidencck
+/k8s/                        @aidencck
+
+# 公共组件（跨服务契约 / JWT / 异常 / 追踪）
+/aiot-common/                @aidencck
+
+# 数据库迁移（Flyway，硬约束：DDL 只走 migrator）
+/aiot-db-migrator/           @aidencck
+
+# 业务微服务
+/aiot-gateway/               @aidencck
+/aiot-auth-service/          @aidencck
+/aiot-device-service/        @aidencck
+/aiot-home-service/          @aidencck
+/aiot-rule-engine/           @aidencck
+/aiot-mqtt-adapter/          @aidencck
+/aiot-data-parser/           @aidencck
+/aiot-shadow-service/        @aidencck
+
+# 前端
+/aiot-admin-web/             @aidencck
+
+# 边缘 / 训练（Python）
+/edge/                       @aidencck
+/training/                   @aidencck
+
+# 兜底：任何未匹配路径
+*                            @aidencck

@@ -17,8 +17,9 @@ on:
           - aiot-mqtt-adapter
           - aiot-data-parser
       target_tag:
-        description: "目标镜像 Tag（例如 main、v1.2.3）"
-        required: true
+        description: "留空则自动读取上次发布记录回滚"
+        required: false
+        default: ""
         type: string
 
 concurrency:
@@ -54,8 +55,17 @@ jobs:
             esac
 
             if [[ -z "${TARGET_TAG}" ]]; then
-              echo "target_tag is required"
-              exit 1
+              previous_image_file="/opt/aiot-cloud/scripts/.release_state/${SERVICE}.previous_image"
+              if [[ ! -f "${previous_image_file}" ]]; then
+                echo "target_tag is empty and previous image state not found: ${previous_image_file}"
+                exit 1
+              fi
+              previous_image="$(cat "${previous_image_file}")"
+              TARGET_TAG="${previous_image##*:}"
+              if [[ -z "${TARGET_TAG}" || "${TARGET_TAG}" == "${previous_image}" ]]; then
+                echo "Failed to extract tag from previous image state: ${previous_image}"
+                exit 1
+              fi
             fi
 
             cd /opt/aiot-cloud

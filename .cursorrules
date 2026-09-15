@@ -64,7 +64,7 @@
 
 ## 8. 代码风格与提交质量
 - 遵循《阿里巴巴 Java 开发手册》。
-- 缩进：Java/YAML 4 空格，JSON/JS 2 空格；禁止 Tab。
+- 缩进：Java/YAML 4 空格，JSON/JS/TypeScript/Vue 2 空格；禁止 Tab（Makefile 必须使用 Tab 除外）。
 - 编码 UTF-8，换行 LF。
 - 新增 CRUD 必须同步完成：软删策略、唯一约束、热点索引、回滚安全迁移脚本、越权与重复写测试。
 

@@ -1,0 +1,31 @@
+name: Alert to Issue
+
+on:
+  schedule:
+    # 每 15 分钟拉取一次 Alertmanager active alerts
+    - cron: '*/15 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+env:
+  # ALERTMANAGER_URL 需在 Settings→Secrets 配置为 CI 可达的 Alertmanager 地址
+  # （如公网入口或经 SSH tunnel 转发后的地址），默认仅本机演示用。
+  ALERTMANAGER_URL: ${{ secrets.ALERTMANAGER_URL }}
+
+jobs:
+  sync:
+    name: Sync Alerts to Issues
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Sync Alertmanager alerts to GitHub Issues
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          python scripts/sync_alerts_to_github.py \
+            --alertmanager-url "${ALERTMANAGER_URL:-http://localhost:9093}"

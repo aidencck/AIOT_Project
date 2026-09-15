@@ -25,6 +25,10 @@ jobs:
       services: ${{ steps.select.outputs.services }}
       maven_modules: ${{ steps.select.outputs.maven_modules }}
       has_changes: ${{ steps.select.outputs.has_changes }}
+      training_changed: ${{ steps.select.outputs.training_changed }}
+      admin_web_changed: ${{ steps.select.outputs.admin_web_changed }}
+      edge_changed: ${{ steps.select.outputs.edge_changed }}
+      python_changed: ${{ steps.select.outputs.python_changed }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -39,7 +43,15 @@ jobs:
               - 'Dockerfile'
               - '.github/workflows/ci-cd.yml'
               - 'scripts/**'
+              - 'compose/**'
+              - 'monitoring/**'
+              - 'docker/mysql/**'
+              - 'aiot-db-migrator/**'
               - 'aiot-common/**'
+            training_workspace:
+              - 'training/**'
+            edge_workspace:
+              - 'edge/**'
             aiot_gateway:
               - 'aiot-gateway/**'
             aiot_auth_service:
@@ -56,6 +68,8 @@ jobs:
               - 'aiot-mqtt-adapter/**'
             aiot_data_parser:
               - 'aiot-data-parser/**'
+            admin_web:
+              - 'aiot-admin-web/**'
 
       - name: Build service matrix
         id: select
@@ -69,21 +83,16 @@ jobs:
           RULE_CHANGED: ${{ steps.filter.outputs.aiot_rule_engine }}
           MQTT_CHANGED: ${{ steps.filter.outputs.aiot_mqtt_adapter }}
           DATA_PARSER_CHANGED: ${{ steps.filter.outputs.aiot_data_parser }}
+          TRAINING_CHANGED: ${{ steps.filter.outputs.training_workspace }}
+          ADMIN_WEB_CHANGED: ${{ steps.filter.outputs.admin_web }}
+          EDGE_CHANGED: ${{ steps.filter.outputs.edge_workspace }}
         run: |
           python - <<'PY'
           import json
           import os
 
-          all_services = [
-              "aiot-gateway",
-              "aiot-auth-service",
-              "aiot-device-service",
-              "aiot-home-service",
-              "aiot-shadow-service",
-              "aiot-rule-engine",
-              "aiot-mqtt-adapter",
-              "aiot-data-parser",
-          ]
+          with open("scripts/lib/services.json", encoding="utf-8") as fh:
+              all_services = [s["name"] for s in json.load(fh)["services"]]
 
           if os.getenv("SHARED_CHANGED") == "true":
               selected = all_services
@@ -104,12 +113,51 @@ jobs:
               "services": json.dumps(selected),
               "maven_modules": ",".join(selected),
               "has_changes": "true" if selected else "false",
+              "training_changed": "true" if os.getenv("TRAINING_CHANGED") == "true" else "false",
+              "admin_web_changed": "true" if os.getenv("ADMIN_WEB_CHANGED") == "true" else "false",
+              "edge_changed": "true" if os.getenv("EDGE_CHANGED") == "true" else "false",
+              "python_changed": "true" if (os.getenv("TRAINING_CHANGED") == "true" or os.getenv("EDGE_CHANGED") == "true") else "false",
           }
 
           with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as fh:
               for key, value in outputs.items():
                   fh.write(f"{key}={value}\n")
           PY
+
+  service-registry-guard:
+    name: Service Registry Guard
+    needs: detect-changes
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Verify service registry consistency
+        run: bash -c 'source scripts/lib/common.sh && service::guard'
+
+      - name: Verify github registry consistency
+        run: bash -c 'source scripts/lib/common.sh && github::guard'
+
+      - name: Verify topology ports (compose overlay / k8s / docs)
+        run: python3 scripts/gen_topology.py --check
+
+  trae-memory-baseline:
+    name: Trae Memory & Baseline Guard
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Verify Trae four-subsystem baseline (CI mode)
+        run: bash scripts/check_trae_baseline.sh --ci
+
+      - name: Verify Trae memory health snapshot (CI mode)
+        run: bash scripts/check_memory_health.sh --ci
 
   build-and-test:
     name: Build, Test and Code Analysis
@@ -211,6 +259,7 @@ jobs:
           min_branch = float(os.getenv("COVERAGE_MIN_BRANCH", "0.20"))
 
           reports = []
+          failed = []
           for module in modules:
               report = pathlib.Path(module) / "target/site/jacoco/jacoco.xml"
               if report.exists():
@@ -255,7 +304,6 @@ jobs:
           COVERAGE_MIN_LINE: ${{ env.COVERAGE_MIN_LINE }}
           COVERAGE_MIN_BRANCH: ${{ env.COVERAGE_MIN_BRANCH }}
 
-      # 2. 收集测试报告 (Collect Test Reports)
       - name: Upload test results
         if: always()
         uses: actions/upload-artifact@v4
@@ -272,13 +320,204 @@ jobs:
           path: '**/target/site/jacoco/jacoco.xml'
           retention-days: 7
 
-      # 3. 收集编译后的 Jar 包，传递给下一个 Job 构建 Docker 镜像
       - name: Upload JAR artifacts
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: built-jars
           path: '*/target/*.jar'
           retention-days: 1
+
+  python-tests:
+    name: Python Unit Tests (edge + training)
+    needs: detect-changes
+    if: needs.detect-changes.outputs.has_changes == 'true' || needs.detect-changes.outputs.python_changed == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install pytest
+          python -m pip install -r edge/aiot-edge-agent/requirements.txt
+          python -m pip install -e training
+
+      - name: Run edge agent tests
+        working-directory: edge/aiot-edge-agent
+        run: python -m pytest -q
+
+      - name: Run device simulator tests
+        working-directory: edge/device-simulator
+        run: python -m pytest -q
+
+      - name: Run training unit tests
+        run: python -m pytest training/tests -q
+
+  db-migration-validate:
+    name: Validate Flyway Migrations
+    needs: detect-changes
+    if: needs.detect-changes.outputs.has_changes == 'true' || needs.detect-changes.outputs.training_changed == 'true'
+    runs-on: ubuntu-latest
+    env:
+      FLYWAY_AIOT_CLOUD_URL: jdbc:mysql://127.0.0.1:3306/aiot_cloud?useUnicode=true&characterEncoding=utf-8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
+      FLYWAY_AIOT_CLOUD_USER: root
+      FLYWAY_AIOT_HOME_URL: jdbc:mysql://127.0.0.1:3306/aiot_home?useUnicode=true&characterEncoding=utf-8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
+      FLYWAY_AIOT_HOME_USER: root
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Generate ephemeral MySQL password
+        run: echo "MYSQL_PASSWORD=$(openssl rand -hex 16)" >> "${GITHUB_ENV}"
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+          cache: maven
+
+      - name: Start MySQL for Flyway validation
+        run: docker compose up -d mysql
+
+      - name: Wait for MySQL readiness
+        run: |
+          for _ in $(seq 1 60); do
+            if docker exec aiot-mysql mysqladmin ping -h localhost -uroot -p"${MYSQL_PASSWORD}" --silent; then
+              exit 0
+            fi
+            sleep 2
+          done
+          docker compose ps
+          exit 1
+
+      - name: Validate aiot_cloud migrations
+        run: |
+          export FLYWAY_AIOT_CLOUD_PASSWORD="${MYSQL_PASSWORD}"
+          mvn -B -pl aiot-db-migrator -P aiot-cloud -Dflyway.ignoreMigrationPatterns='*:pending' flyway:validate flyway:migrate
+
+      - name: Validate aiot_home migrations
+        run: |
+          export FLYWAY_AIOT_HOME_PASSWORD="${MYSQL_PASSWORD}"
+          mvn -B -pl aiot-db-migrator -P aiot-home -Dflyway.ignoreMigrationPatterns='*:pending' flyway:validate flyway:migrate
+
+      - name: Stop MySQL
+        if: always()
+        run: docker compose stop mysql
+
+  training-consistency-gate:
+    name: Training Consistency and Migration Gate
+    needs: [detect-changes, db-migration-validate]
+    if: needs.detect-changes.outputs.has_changes == 'true' || needs.detect-changes.outputs.training_changed == 'true'
+    runs-on: ubuntu-latest
+    env:
+      AIOT_MYSQL_HOST: 127.0.0.1
+      AIOT_MYSQL_PORT: 3306
+      AIOT_MYSQL_USER: root
+      AIOT_MYSQL_DATABASE: aiot_cloud
+      AIOT_REDIS_HOST: 127.0.0.1
+      AIOT_REDIS_PORT: 6379
+      AIOT_REDIS_DB: 0
+      AIOT_PROJECT_ROOT: ${{ github.workspace }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Generate ephemeral MySQL password
+        run: |
+          pw="$(openssl rand -hex 16)"
+          echo "MYSQL_PASSWORD=${pw}" >> "${GITHUB_ENV}"
+          echo "AIOT_MYSQL_PASSWORD=${pw}" >> "${GITHUB_ENV}"
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+          cache: maven
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install training workspace dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e training
+
+      - name: Start MySQL and Redis for migration gate
+        run: docker compose up -d mysql redis
+
+      - name: Wait for MySQL readiness
+        run: |
+          for _ in $(seq 1 60); do
+            if docker exec aiot-mysql mysqladmin ping -h localhost -uroot -p"${MYSQL_PASSWORD}" --silent; then
+              exit 0
+            fi
+            sleep 2
+          done
+          docker compose ps
+          exit 1
+
+      - name: Wait for Redis readiness
+        run: |
+          for _ in $(seq 1 60); do
+            if docker exec aiot-redis redis-cli ping | grep -q PONG; then
+              exit 0
+            fi
+            sleep 2
+          done
+          docker compose ps
+          exit 1
+
+      - name: Apply aiot_cloud migrations for training gate
+        env:
+          FLYWAY_AIOT_CLOUD_URL: jdbc:mysql://127.0.0.1:3306/aiot_cloud?useUnicode=true&characterEncoding=utf-8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
+          FLYWAY_AIOT_CLOUD_USER: root
+        run: |
+          export FLYWAY_AIOT_CLOUD_PASSWORD="${MYSQL_PASSWORD}"
+          mvn -B -pl aiot-db-migrator -P aiot-cloud -Dflyway.ignoreMigrationPatterns='*:pending' flyway:validate flyway:migrate
+
+      - name: Verify aiot_cloud integrity constraints
+        run: bash training/scripts/verify_mysql_constraints.sh OFFLINE_FLAP
+
+      - name: Seed AI runtime demo data into Redis
+        run: python -m aiot_training.backfill.seed_runtime_demo --scene OFFLINE_FLAP --reset-redis --reset-mysql
+
+      - name: Backfill Redis data into MySQL
+        run: bash training/scripts/backfill_redis_to_mysql.sh OFFLINE_FLAP
+
+      - name: Verify control-plane Redis drain state
+        run: bash training/scripts/drain_control_plane_redis.sh dry-run
+
+      - name: Verify MySQL export and consistency
+        run: bash training/scripts/verify_mysql_export.sh OFFLINE_FLAP true
+
+      - name: Evaluate migration gate
+        run: bash training/scripts/check_migration_gate.sh OFFLINE_FLAP 0 1
+
+      - name: Upload AI persistence reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ai-persistence-reports
+          path: |
+            training/data/backfill/*.json
+            training/data/raw/manifests/*.json
+            training/data/reports/persistence/*.json
+          retention-days: 7
+
+      - name: Stop MySQL and Redis
+        if: always()
+        run: docker compose stop mysql redis
 
   communication-guard:
     name: Communication Guardrails
@@ -300,7 +539,8 @@ jobs:
           bash -n scripts/test_service_communication.sh
           bash -n scripts/release_gate_check.sh
           bash -n scripts/release_canary_with_rollback.sh
-          shellcheck scripts/test_provision_and_webhook.sh scripts/test_service_communication.sh scripts/release_gate_check.sh scripts/release_canary_with_rollback.sh
+          bash -n scripts/migrate_database.sh
+          shellcheck scripts/test_provision_and_webhook.sh scripts/test_service_communication.sh scripts/release_gate_check.sh scripts/release_canary_with_rollback.sh scripts/migrate_database.sh
 
       - name: Validate internal communication configs
         run: |
@@ -440,7 +680,15 @@ jobs:
           MODULES: ${{ needs.detect-changes.outputs.maven_modules }}
         run: |
           set -euo pipefail
-          export MYSQL_PASSWORD="runtime-smoke-mysql-password-123456"
+          source scripts/lib/common.sh
+          # 每次 run 随机生成，杜绝可预测凭据（JWT 需 ≥32 字节 → openssl rand -hex 32）
+          export MYSQL_PASSWORD="$(openssl rand -hex 16)"
+          export EMQX_API_PASSWORD="$(openssl rand -hex 16)"
+          export AIOT_INTERNAL_TOKEN="$(openssl rand -hex 16)"
+          export AIOT_EMQX_WEBHOOK_SECRET="$(openssl rand -hex 16)"
+          export AIOT_JWT_SECRET="$(openssl rand -hex 32)"
+          artifact_dir="${GITHUB_WORKSPACE}/artifacts/runtime-smoke"
+          mkdir -p "${artifact_dir}"
 
           pids=()
           infra_started="0"
@@ -451,8 +699,8 @@ jobs:
               wait "${pid}" 2>/dev/null || true
             done
             if [[ "${infra_started}" == "1" ]]; then
-              docker compose stop mysql redis nacos >/dev/null 2>&1 || true
-              docker compose rm -f mysql redis nacos >/dev/null 2>&1 || true
+              docker compose stop mysql redis >/dev/null 2>&1 || true
+              docker compose rm -f mysql redis >/dev/null 2>&1 || true
             fi
           }
           trap cleanup EXIT
@@ -461,10 +709,10 @@ jobs:
             if [[ "${infra_started}" == "1" ]]; then
               return
             fi
-            echo "Starting infra services: mysql/redis/nacos ..."
-            docker compose up -d mysql redis nacos
+            echo "Starting infra services: mysql/redis ..."
+            docker compose up -d mysql redis
             for _ in $(seq 1 60); do
-              if curl -fsS "http://127.0.0.1:8848/nacos/v1/console/health/readiness" >/dev/null; then
+              if docker exec aiot-mysql mysqladmin ping -h localhost -uroot -p"${MYSQL_PASSWORD}" --silent; then
                 infra_started="1"
                 echo "Infra services are ready."
                 return
@@ -480,7 +728,7 @@ jobs:
             local module="$1"
             local port="$2"
             local extra_env="${3:-}"
-            local log_file="/tmp/${module}.log"
+            local log_file="${artifact_dir}/${module}.log"
             local pid=""
 
             echo "Starting ${module} on port ${port} ..."
@@ -508,6 +756,8 @@ jobs:
 
             if [[ "${ok}" != "1" ]]; then
               echo "Runtime smoke failed for ${module}."
+              docker compose ps > "${artifact_dir}/docker-compose.ps.txt" 2>&1 || true
+              docker compose logs --tail 200 mysql redis > "${artifact_dir}/infra.log" 2>&1 || true
               echo "--- ${module} logs ---"
               tail -n 200 "${log_file}" || true
               return 1
@@ -515,50 +765,23 @@ jobs:
             echo "Runtime smoke passed for ${module}"
           }
 
-          modules_csv="${MODULES:-}"
-          IFS=',' read -r -a changed_modules <<< "${modules_csv}"
+          # 预编译安装：确保 aiot-common 等兄弟依赖在全新 runner 中可解析
+          mvn -B -pl "${MODULES}" -am -DskipTests -Djacoco.skip=true install --file pom.xml
 
-          has_runnable="0"
-          for module in "${changed_modules[@]}"; do
-            module_trimmed="$(echo "${module}" | xargs)"
-            case "${module_trimmed}" in
-              aiot-gateway)
-                has_runnable="1"
-                run_runtime_smoke "aiot-gateway" "8080" \
-                  "AIOT_JWT_SECRET=runtime-smoke-jwt-secret-12345678901234567890"
-                ;;
-              aiot-mqtt-adapter)
-                has_runnable="1"
-                run_runtime_smoke "aiot-mqtt-adapter" "8085" ""
-                ;;
-              aiot-data-parser)
-                has_runnable="1"
-                run_runtime_smoke "aiot-data-parser" "8086" ""
-                ;;
-              aiot-auth-service)
-                has_runnable="1"
-                start_infra_if_needed
-                run_runtime_smoke "aiot-auth-service" "8082" \
-                  "NACOS_ADDR=127.0.0.1:8848 MYSQL_HOST=127.0.0.1 MYSQL_USER=root MYSQL_PASSWORD=runtime-smoke-mysql-password-123456 REDIS_HOST=127.0.0.1 AIOT_INTERNAL_TOKEN=runtime-smoke-token-1234567890 AIOT_EMQX_WEBHOOK_SECRET=runtime-smoke-webhook-secret-1234567890"
-                ;;
-              aiot-device-service)
-                has_runnable="1"
-                start_infra_if_needed
-                run_runtime_smoke "aiot-device-service" "8081" \
-                  "NACOS_ADDR=127.0.0.1:8848 MYSQL_HOST=127.0.0.1 MYSQL_USER=root MYSQL_PASSWORD=runtime-smoke-mysql-password-123456 REDIS_HOST=127.0.0.1 EMQX_HOST=127.0.0.1 EMQX_API_USER=admin EMQX_API_PASSWORD=runtime-smoke-emqx-password-123456 AIOT_INTERNAL_TOKEN=runtime-smoke-token-1234567890 AIOT_JWT_SECRET=runtime-smoke-jwt-secret-12345678901234567890"
-                ;;
-              aiot-home-service)
-                has_runnable="1"
-                start_infra_if_needed
-                run_runtime_smoke "aiot-home-service" "8083" \
-                  "NACOS_ADDR=127.0.0.1:8848 MYSQL_HOST=127.0.0.1 MYSQL_PORT=3306 MYSQL_USER=root MYSQL_PWD=runtime-smoke-mysql-password-123456 REDIS_HOST=127.0.0.1 REDIS_PORT=6379 AIOT_INTERNAL_TOKEN=runtime-smoke-token-1234567890 AIOT_JWT_SECRET=runtime-smoke-jwt-secret-12345678901234567890"
-                ;;
-            esac
+          for module in $(service::list); do
+            if [[ "$(service::needs_infra "${module}")" == "true" ]]; then
+              start_infra_if_needed
+            fi
+            run_runtime_smoke "${module}" "$(service::port "${module}")" "$(service::runtime_env "${module}")"
           done
 
-          if [[ "${has_runnable}" == "0" ]]; then
-            echo "No runtime-smoke service changed, skip runtime smoke check."
-          fi
+      - name: Upload runtime smoke artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: runtime-smoke-artifacts
+          path: artifacts/runtime-smoke/**
+          if-no-files-found: ignore
 
   dependency-reachability-guard:
     name: Dependency Reachability Guard
@@ -596,7 +819,7 @@ jobs:
                       missing.append(f"{module} requires `{service}` but docker-compose has no `{service}` service")
 
           # validate base-url service host is resolvable in compose by service key
-          base_url_pattern = re.compile(r"base-url:\s*\$\{[^:}]+:http://([a-zA-Z0-9\\-]+):\\d+\\}")
+          base_url_pattern = re.compile(r"base-url:\s*\$\{[^:}]+:lb://([a-zA-Z0-9\\-]+)(?::\\d+)?\\}")
           for module in modules:
               app = Path(module) / "src/main/resources/application.yml"
               if not app.exists():
@@ -617,9 +840,33 @@ jobs:
           print("Dependency reachability guard passed")
           PY
 
+  artifact-consistency-gate:
+    name: Artifact Consistency Gate (jar vs source)
+    needs: [detect-changes, build-and-test]
+    if: needs.detect-changes.outputs.has_changes == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Download JAR artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: built-jars
+          path: .
+
+      - name: Verify jar/config consistency for changed services
+        env:
+          MODULES: ${{ needs.detect-changes.outputs.maven_modules }}
+        run: |
+          set -euo pipefail
+          if [[ -n "${MODULES}" ]]; then
+            bash scripts/verify_artifact_consistency.sh --service "${MODULES}" --skip-image
+          fi
+
   docker-build:
     name: Build and Push Docker Images
-    needs: [detect-changes, build-and-test, communication-guard, observability-smoke, observability-runtime-smoke, dependency-reachability-guard]
+    needs: [detect-changes, build-and-test, artifact-consistency-gate, communication-guard, observability-smoke, observability-runtime-smoke, dependency-reachability-guard, db-migration-validate, training-consistency-gate, python-tests]
     runs-on: ubuntu-latest
     # 仅在合并到主分支时推送镜像，如果是 PR 则只验证是否能成功构建
     if: needs.detect-changes.outputs.has_changes == 'true'
@@ -649,11 +896,19 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Normalize image repository name
+        id: repo
+        run: echo "name=$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_OUTPUT"
+
       - name: Extract metadata (tags, labels) for Docker
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ${{ env.REGISTRY }}/${{ github.repository }}/${{ matrix.service }}
+          images: ${{ env.REGISTRY }}/${{ steps.repo.outputs.name }}/${{ matrix.service }}
+          # 统一 tag 口径：固定分支 tag(main) + 全量 sha(sha-<full>)，供 e2e/deploy 一致拉取
+          tags: |
+            type=ref,event=branch
+            type=sha,format=long
 
       # 5. 构建并推送 Docker 镜像 (Build & Push)
       - name: Build and push Docker image
@@ -670,12 +925,185 @@ jobs:
           provenance: false
           build-args: |
             JAR_FILE=${{ matrix.service }}/target/*.jar
-            APP_NAME=${{ matrix.service }}.jar
+            APP_NAME=${{ matrix.service }}
+
+  frontend-build:
+    name: Build and Push Admin Web
+    needs: detect-changes
+    if: needs.detect-changes.outputs.admin_web_changed == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: aiot-admin-web/package-lock.json
+
+      # 前端构建硬门禁：类型检查 + 产物打包，失败即阻断镜像发布
+      - name: Install dependencies and build
+        working-directory: aiot-admin-web
+        run: |
+          npm ci --no-audit --no-fund
+          npm run lint
+          npm run test
+          npm run build
+
+      - name: Log in to the Container registry
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Normalize image repository name
+        id: repo
+        run: echo "name=$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_OUTPUT"
+
+      - name: Extract metadata (tags, labels) for Docker
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ steps.repo.outputs.name }}/aiot-admin-web
+          tags: |
+            type=ref,event=branch
+            type=sha,format=long
+
+      - name: Build and push admin web image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./aiot-admin-web
+          file: ./aiot-admin-web/Dockerfile
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha,scope=aiot-admin-web
+          cache-to: type=gha,mode=max,scope=aiot-admin-web
+          provenance: false
+
+  service-communication-e2e:
+    name: Service Communication E2E
+    needs: [detect-changes, build-and-test, communication-guard, db-migration-validate]
+    runs-on: ubuntu-latest
+    if: needs.detect-changes.outputs.has_changes == 'true'
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Download JAR artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: built-jars
+          path: .
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+          cache: maven
+
+      - name: Prepare communication artifacts
+        run: |
+          mkdir -p artifacts/service-communication
+          chmod +x scripts/bootstrap_service_communication_ci.sh
+          chmod +x scripts/test_service_communication.sh
+          chmod +x scripts/test_provision_and_webhook.sh
+          chmod +x scripts/verify_entry.sh
+
+      - name: Generate ephemeral smoke secrets
+        run: |
+          # 每次 run 随机生成，杜绝可预测凭据（JWT 需 ≥32 字节 → openssl rand -hex 32）
+          {
+            echo "MYSQL_PASSWORD=$(openssl rand -hex 16)"
+            echo "EMQX_API_PASSWORD=$(openssl rand -hex 16)"
+            echo "AIOT_INTERNAL_TOKEN=$(openssl rand -hex 16)"
+            echo "AIOT_EMQX_WEBHOOK_SECRET=$(openssl rand -hex 16)"
+            echo "AIOT_JWT_SECRET=$(openssl rand -hex 32)"
+          } >> "${GITHUB_ENV}"
+
+      - name: Start communication stack
+        env:
+          IMAGE_TAG: sha-${{ github.sha }}
+          EMQX_API_USER: admin
+        run: |
+          set -euo pipefail
+          docker compose -f docker-compose.yml -f docker-compose.ci.yml up -d --build \
+            mysql redis emqx aiot-gateway aiot-home-service aiot-rule-engine aiot-device-service aiot-auth-service
+
+      - name: Bootstrap communication seed data
+        env:
+          BASE_GATEWAY: http://127.0.0.1:8080
+          ARTIFACT_DIR: ${{ github.workspace }}/artifacts/service-communication/bootstrap
+        run: ./scripts/bootstrap_service_communication_ci.sh
+
+      - name: Run service communication suite
+        env:
+          BASE_GATEWAY: http://127.0.0.1:8080
+          BASE_HOME: http://127.0.0.1:18083
+          BASE_DEVICE: http://127.0.0.1:18081
+          BASE_AUTH: http://127.0.0.1:18082
+          ARTIFACT_DIR: ${{ github.workspace }}/artifacts/service-communication/suite
+        run: |
+          set -euo pipefail
+          seed_file="${GITHUB_WORKSPACE}/artifacts/service-communication/bootstrap/seed-summary.json"
+          export AUTH_TOKEN="$(jq -r '.authToken' "${seed_file}")"
+          export HOME_ID="$(jq -r '.homeId' "${seed_file}")"
+          export DEVICE_ID="$(jq -r '.deviceId' "${seed_file}")"
+          ./scripts/verify_entry.sh --stage integration --suite service-communication
+
+      - name: Run provision webhook suite
+        env:
+          BASE_GATEWAY: http://127.0.0.1:8080
+          BASE_DEVICE: http://127.0.0.1:18081
+          BASE_AUTH: http://127.0.0.1:18082
+          ARTIFACT_DIR: ${{ github.workspace }}/artifacts/service-communication/provision-webhook
+        run: |
+          set -euo pipefail
+          seed_file="${GITHUB_WORKSPACE}/artifacts/service-communication/bootstrap/seed-summary.json"
+          export AUTH_TOKEN="$(jq -r '.authToken' "${seed_file}")"
+          export HOME_ID="$(jq -r '.homeId' "${seed_file}")"
+          export PRODUCT_KEY="$(jq -r '.productKey' "${seed_file}")"
+          ./scripts/verify_entry.sh --stage integration --suite provision-webhook
+
+      - name: Collect compose diagnostics
+        if: always()
+        run: |
+          mkdir -p artifacts/service-communication/compose
+          docker compose -f docker-compose.yml -f docker-compose.ci.yml ps \
+            > artifacts/service-communication/compose/docker-compose.ps.txt 2>&1 || true
+          docker compose -f docker-compose.yml -f docker-compose.ci.yml logs --tail 200 \
+            > artifacts/service-communication/compose/docker-compose.log 2>&1 || true
+
+      - name: Upload communication artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: service-communication-${{ github.sha }}
+          path: artifacts/service-communication/**
+          if-no-files-found: warn
+
+      - name: Stop communication stack
+        if: always()
+        env:
+          IMAGE_TAG: sha-${{ github.sha }}
+          EMQX_API_USER: admin
+        run: |
+          docker compose -f docker-compose.yml -f docker-compose.ci.yml down -v --remove-orphans || true
 
   deploy:
     name: Deploy to Server
-    needs: [detect-changes, docker-build]
+    needs: [detect-changes, docker-build, service-communication-e2e, trae-memory-baseline]
     runs-on: ubuntu-latest
+    # 生产环境门禁：GitHub 部署环境隔离，可在 Settings→Environments→production 配置审批与专属 Secret。
+    environment: production
     # 仅在 push 到主分支时触发部署
     if: needs.detect-changes.outputs.has_changes == 'true' && github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
     steps:
@@ -701,129 +1129,8 @@ jobs:
           script: |
             set -euo pipefail
 
-            health_url_for_service() {
-              case "$1" in
-                aiot-gateway) echo "http://127.0.0.1:8080/actuator/health/readiness" ;;
-                aiot-device-service) echo "http://127.0.0.1:8081/actuator/health/readiness" ;;
-                aiot-auth-service) echo "http://127.0.0.1:8082/actuator/health/readiness" ;;
-                aiot-home-service) echo "http://127.0.0.1:8083/actuator/health/readiness" ;;
-                aiot-rule-engine) echo "http://127.0.0.1:8084/actuator/health/readiness" ;;
-                aiot-mqtt-adapter) echo "http://127.0.0.1:8085/actuator/health/readiness" ;;
-                aiot-data-parser) echo "http://127.0.0.1:8086/actuator/health/readiness" ;;
-                aiot-shadow-service) echo "http://127.0.0.1:8087/actuator/health/readiness" ;;
-                *) echo "" ;;
-              esac
-            }
-
-            verify_service_health() {
-              local service="$1"
-              local timeout="$2"
-              local interval="$3"
-              local cid
-              local url
-              local start_ts
-
-              cid="$(docker compose ps -q "${service}" || true)"
-              if [[ -z "${cid}" ]]; then
-                echo "ERROR: ${service} 没有运行中的容器"
-                return 1
-              fi
-
-              url="$(health_url_for_service "${service}")"
-              start_ts="$(date +%s)"
-
-              while true; do
-                local now state health state_ok http_ok
-                now="$(date +%s)"
-                if (( now - start_ts > timeout )); then
-                  echo "ERROR: ${service} 健康检查超时 (${timeout}s)"
-                  docker compose ps "${service}" || true
-                  docker logs --tail 120 "${cid}" || true
-                  return 1
-                fi
-
-                state="$(docker inspect --format '{{.State.Status}}' "${cid}" 2>/dev/null || echo unknown)"
-                health="$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "${cid}" 2>/dev/null || echo unknown)"
-                state_ok="0"
-                http_ok="1"
-
-                if [[ "${state}" == "running" ]] && [[ "${health}" == "healthy" || "${health}" == "none" ]]; then
-                  state_ok="1"
-                fi
-
-                if [[ -n "${url}" ]] && ! curl -fsS "${url}" >/dev/null 2>&1; then
-                  http_ok="0"
-                fi
-
-                if [[ "${state_ok}" == "1" && "${http_ok}" == "1" ]]; then
-                  return 0
-                fi
-
-                if [[ "${state}" == "exited" || "${state}" == "dead" || "${health}" == "unhealthy" ]]; then
-                  echo "ERROR: ${service} 状态异常 state=${state} health=${health}"
-                  docker compose ps "${service}" || true
-                  docker logs --tail 120 "${cid}" || true
-                  return 1
-                fi
-
-                sleep "${interval}"
-              done
-            }
-
-            rollback_service() {
-              local service="$1"
-              local previous_image="$2"
-              local rollback_tag
-
-              if [[ -z "${previous_image}" ]]; then
-                echo "ERROR: ${service} 未找到可回滚的历史镜像"
-                return 1
-              fi
-              if [[ "${previous_image}" != *":"* ]]; then
-                echo "ERROR: ${service} 历史镜像无 tag: ${previous_image}"
-                return 1
-              fi
-
-              rollback_tag="${previous_image##*:}"
-              echo "[Rollback] ${service} -> ${rollback_tag}"
-              IMAGE_TAG="${rollback_tag}" docker compose pull "${service}"
-              IMAGE_TAG="${rollback_tag}" docker compose up -d --remove-orphans --no-deps "${service}"
-              verify_service_health "${service}" "${HEALTH_TIMEOUT}" "${HEALTH_INTERVAL}"
-            }
-
-            deploy_with_canary() {
-              local service="$1"
-              local target_tag="$2"
-              local previous_cid previous_image canary_deadline
-
-              previous_cid="$(docker compose ps -q "${service}" || true)"
-              previous_image=""
-              if [[ -n "${previous_cid}" ]]; then
-                previous_image="$(docker inspect --format '{{.Config.Image}}' "${previous_cid}" 2>/dev/null || true)"
-              fi
-
-              echo "[Deploy] ${service} -> ${target_tag}"
-              IMAGE_TAG="${target_tag}" docker compose pull "${service}"
-              IMAGE_TAG="${target_tag}" docker compose up -d --remove-orphans --no-deps "${service}"
-              verify_service_health "${service}" "${HEALTH_TIMEOUT}" "${HEALTH_INTERVAL}"
-
-              echo "[Canary] ${service} 观察 ${CANARY_SECONDS}s"
-              canary_deadline=$(( $(date +%s) + CANARY_SECONDS ))
-              while (( $(date +%s) < canary_deadline )); do
-                if ! verify_service_health "${service}" "${HEALTH_INTERVAL}" "${HEALTH_INTERVAL}"; then
-                  echo "[Canary] ${service} 检测失败，触发自动回滚"
-                  rollback_service "${service}" "${previous_image}"
-                  return 1
-                fi
-                sleep "${CANARY_INTERVAL}"
-              done
-              echo "[Canary] ${service} 通过"
-              return 0
-            }
-
-            # 假设服务器上的项目路径为 /opt/aiot-cloud
             cd /opt/aiot-cloud
-            target_tag="sha-${RELEASE_SHA:0:7}"
+            target_tag="sha-${RELEASE_SHA}"
             services="${SERVICES}"
 
             if [[ -z "${services}" ]]; then
@@ -831,8 +1138,23 @@ jobs:
               exit 0
             fi
 
+            # 数据库迁移先行：migrate 成功后才允许滚动发布应用
+            echo "[Migrate] 执行数据库迁移（aiot_cloud + aiot_home）"
+            bash scripts/migrate_database.sh --db all
+
             for service in ${services}; do
-              deploy_with_canary "${service}" "${target_tag}"
+              bash scripts/release_canary_with_rollback.sh \
+                --service "${service}" \
+                --tag "${target_tag}" \
+                --health-timeout "${HEALTH_TIMEOUT}" \
+                --health-interval "${HEALTH_INTERVAL}" \
+                --canary-seconds "${CANARY_SECONDS}" \
+                --canary-interval "${CANARY_INTERVAL}"
             done
 
-            docker image prune -f
+            # 构建保留治理：本地镜像与 BuildKit 缓存保留不超过 7 天（168h）。
+            # 仅清理「未被任何容器引用」且「创建时间 > 7 天」的 AIOT 镜像，避免旧 sha-* 无限堆积。
+            docker image prune -a -f \
+              --filter "until=168h" \
+              --filter "label=org.opencontainers.image.source=https://github.com/aidencck/AIOT_Project"
+            docker builder prune --filter "until=168h" -f

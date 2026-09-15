@@ -1,0 +1,54 @@
+name: Bug 报告
+description: 提交缺陷，需附最小复现步骤与证据
+title: "[Bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        提交前请确认：已在最新 `main` 复现，且不是 [已知问题](https://github.com/aidencck/AIOT_Project/wiki) 的重复。
+  - type: input
+    id: service
+    attributes:
+      label: 受影响服务
+      description: 例如 aiot-rule-engine / aiot-device-service / edge-agent
+      placeholder: aiot-rule-engine
+    validations:
+      required: true
+  - type: dropdown
+    id: severity
+    attributes:
+      label: 严重级别
+      options:
+        - S1 阻断
+        - S2 严重
+        - S3 一般
+        - S4 轻微
+    validations:
+      required: true
+  - type: textarea
+    id: summary
+    attributes:
+      label: 问题描述
+      description: 一句话描述现象与影响
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: 复现步骤
+      placeholder: |
+        1. 调用 ...
+        2. 入参 ...
+        3. 观察到 ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: 期望行为
+  - type: textarea
+    id: evidence
+    attributes:
+      label: 日志/证据
+      description: 粘贴 TraceId、异常栈、监控面板链接等（敏感信息请脱敏）

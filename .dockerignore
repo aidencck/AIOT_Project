@@ -1,0 +1,16 @@
+**/target/**
+!**/target/*.jar
+**/.git
+**/.idea
+**/.vscode
+**/.DS_Store
+**/docs
+**/.wiki-sync
+**/.trae
+**/node_modules
+**/*.log
+**/tmp
+docker-compose*.yml
+compose/env/*/runtime.env
+.env*
+!.env.example
