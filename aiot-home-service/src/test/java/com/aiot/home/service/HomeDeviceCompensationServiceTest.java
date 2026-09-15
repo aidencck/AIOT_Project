@@ -9,6 +9,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.test.util.ReflectionTestUtils;
+import org.springframework.web.reactive.function.client.WebClient;
 
 import java.io.IOException;
 import java.io.OutputStream;
@@ -51,7 +52,7 @@ class HomeDeviceCompensationServiceTest {
         properties.setCircuitBreakerOpenMs(1000L);
         properties.validate();
 
-        compensationService = new HomeDeviceCompensationService(new CrossServiceHttpExecutor(properties));
+        compensationService = new HomeDeviceCompensationService(new CrossServiceHttpExecutor(properties), WebClient.builder());
         ReflectionTestUtils.setField(compensationService, "deviceServiceBaseUrl",
                 "http://127.0.0.1:" + server.getAddress().getPort());
         ReflectionTestUtils.setField(compensationService, "internalToken", "inner-token-2026");

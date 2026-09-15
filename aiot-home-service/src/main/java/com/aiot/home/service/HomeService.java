@@ -5,6 +5,7 @@ import com.aiot.home.dto.HomeMemberAddReq;
 import com.aiot.home.dto.HomeMemberResp;
 import com.aiot.home.dto.HomeMemberRoleUpdateReq;
 import com.aiot.home.dto.HomeResp;
+import com.aiot.home.dto.HomeUpdateReq;
 
 import java.util.List;
 
@@ -44,4 +45,14 @@ public interface HomeService {
      * 移除家庭成员
      */
     void removeHomeMember(String homeId, String targetUserId, String operatorUserId);
+
+    /**
+     * 修改家庭信息（名称/位置）
+     */
+    void updateHome(String homeId, HomeUpdateReq req, String userId);
+
+    /**
+     * 校验家庭是否存在
+     */
+    boolean existsHome(String homeId);
 }

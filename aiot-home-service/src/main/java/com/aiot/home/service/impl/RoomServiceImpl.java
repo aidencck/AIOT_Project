@@ -4,12 +4,15 @@ import com.aiot.common.api.ResultCode;
 import com.aiot.common.exception.BusinessException;
 import com.aiot.home.dto.RoomCreateReq;
 import com.aiot.home.dto.RoomResp;
+import com.aiot.home.dto.RoomUpdateReq;
 import com.aiot.home.entity.Room;
+import com.aiot.home.event.HomeDeleteCompensationEvent;
 import com.aiot.home.repository.RoomRepository;
-import com.aiot.home.service.HomeDeviceCompensationService;
+import com.aiot.home.service.HomeDeleteCompensationTaskService;
 import com.aiot.home.service.RoomService;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -23,7 +26,10 @@ public class RoomServiceImpl implements RoomService {
     private RoomRepository roomRepository;
 
     @Autowired
-    private HomeDeviceCompensationService homeDeviceCompensationService;
+    private HomeDeleteCompensationTaskService homeDeleteCompensationTaskService;
+
+    @Autowired
+    private ApplicationEventPublisher eventPublisher;
 
     @Override
     @Transactional(rollbackFor = Exception.class)
@@ -55,6 +61,26 @@ public class RoomServiceImpl implements RoomService {
 
     @Override
     @Transactional(rollbackFor = Exception.class)
+    public void updateRoom(String roomId, String homeId, RoomUpdateReq req, String userId) {
+        Room room = roomRepository.selectById(roomId);
+        if (room == null) {
+            throw new BusinessException(ResultCode.RESOURCE_NOT_FOUND, "房间不存在");
+        }
+
+        // 二次校验资源归属，防止通过伪造 homeId 参数越权更新其他家庭房间
+        if (!room.getHomeId().equals(homeId)) {
+            throw new BusinessException(ResultCode.FORBIDDEN, "房间不属于当前家庭");
+        }
+
+        room.setName(req.getName());
+        if (req.getRoomType() != null) {
+            room.setRoomType(req.getRoomType());
+        }
+        roomRepository.updateById(room);
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
     public void deleteRoom(String roomId, String homeId, String userId) {
         Room room = roomRepository.selectById(roomId);
         if (room == null) {
@@ -66,9 +92,27 @@ public class RoomServiceImpl implements RoomService {
             throw new BusinessException(ResultCode.FORBIDDEN, "房间不属于当前家庭");
         }
 
-        // 删除房间前先解绑设备的 room 引用
-        homeDeviceCompensationService.unbindDevicesByRoomId(roomId);
-
         roomRepository.deleteById(roomId);
+
+        String taskId = homeDeleteCompensationTaskService.createPendingRoomTask(roomId, homeId);
+        eventPublisher.publishEvent(new HomeDeleteCompensationEvent(taskId));
+    }
+
+    @Override
+    public boolean existsRoom(String roomId) {
+        return roomRepository.selectById(roomId) != null;
+    }
+
+    @Override
+    public boolean roomBelongsToHome(String roomId, String homeId) {
+        Room room = roomRepository.selectById(roomId);
+        return room != null && room.getHomeId() != null && room.getHomeId().equals(homeId);
+    }
+
+    @Override
+    public int deleteRoomsByHomeId(String homeId) {
+        LambdaQueryWrapper<Room> wrapper = new LambdaQueryWrapper<>();
+        wrapper.eq(Room::getHomeId, homeId);
+        return roomRepository.delete(wrapper);
     }
 }

@@ -17,12 +17,15 @@ import lombok.extern.slf4j.Slf4j;
 public class HomeDeviceCompensationService {
 
     private final CrossServiceHttpExecutor crossServiceHttpExecutor;
+    private final WebClient.Builder webClientBuilder;
 
-    public HomeDeviceCompensationService(CrossServiceHttpExecutor crossServiceHttpExecutor) {
+    public HomeDeviceCompensationService(CrossServiceHttpExecutor crossServiceHttpExecutor,
+                                         WebClient.Builder webClientBuilder) {
         this.crossServiceHttpExecutor = crossServiceHttpExecutor;
+        this.webClientBuilder = webClientBuilder;
     }
 
-    @Value("${aiot.device-service.base-url:http://127.0.0.1:8081}")
+    @Value("${aiot.device-service.base-url:lb://aiot-device-service}")
     private String deviceServiceBaseUrl;
 
     @Value("${aiot.internal.token:}")
@@ -53,7 +56,8 @@ public class HomeDeviceCompensationService {
         try {
             Result<Boolean> result = crossServiceHttpExecutor.execute(
                     "home-device-compensation",
-                    () -> WebClient.builder()
+                    () -> webClientBuilder
+                            .clone()
                             .baseUrl(baseUrl)
                             .defaultHeader("X-Internal-Token", internalToken)
                             .build()

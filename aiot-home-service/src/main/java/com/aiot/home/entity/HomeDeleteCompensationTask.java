@@ -5,33 +5,38 @@ import com.baomidou.mybatisplus.annotation.IdType;
 import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
-import com.baomidou.mybatisplus.annotation.Version;
 import lombok.Data;
 
 import java.time.LocalDateTime;
 
-/**
- * 家庭实体类
- */
 @Data
-@TableName("home_info")
-public class Home {
+@TableName("home_delete_compensation_task")
+public class HomeDeleteCompensationTask {
 
     @TableId(type = IdType.ASSIGN_ID)
     private String id;
 
-    private String name;
+    private String targetType;
 
-    private String location;
+    private String targetId;
+
+    private String homeId;
+
+    private Integer status;
+
+    private Integer retryCount;
+
+    private LocalDateTime nextRetryTime;
+
+    private String lastError;
+
+    private String traceId;
 
     @TableField(fill = FieldFill.INSERT)
     private LocalDateTime createTime;
 
     @TableField(fill = FieldFill.INSERT_UPDATE)
     private LocalDateTime updateTime;
-
-    @Version
-    private Integer version;
 
     @TableField(fill = FieldFill.INSERT)
     private Integer isDeleted;

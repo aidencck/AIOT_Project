@@ -1,37 +1,27 @@
+spring.config.import: optional:classpath:application-common.yml
+
 server:
   port: 8083
 
 spring:
   application:
     name: aiot-home-service
-  config:
-    import: optional:nacos:${spring.application.name}.yaml?group=${NACOS_CONFIG_GROUP:DEFAULT_GROUP}&namespace=${NACOS_NAMESPACE:public}
-  cloud:
-    nacos:
-      discovery:
-        server-addr: ${NACOS_ADDR:127.0.0.1:8848}
-        namespace: ${NACOS_NAMESPACE:public}
-        group: ${NACOS_DISCOVERY_GROUP:DEFAULT_GROUP}
-        register-enabled: ${NACOS_REGISTER_ENABLED:true}
-        username: ${NACOS_USERNAME:}
-        password: ${NACOS_PASSWORD:}
-      config:
-        server-addr: ${NACOS_ADDR:127.0.0.1:8848}
-        namespace: ${NACOS_NAMESPACE:public}
-        group: ${NACOS_CONFIG_GROUP:DEFAULT_GROUP}
-        file-extension: yaml
-        username: ${NACOS_USERNAME:}
-        password: ${NACOS_PASSWORD:}
   datasource:
     driver-class-name: com.mysql.cj.jdbc.Driver
     url: jdbc:mysql://${MYSQL_HOST:localhost}:${MYSQL_PORT:3306}/${MYSQL_DB:aiot_home}?useUnicode=true&characterEncoding=utf-8&useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true
     username: ${MYSQL_USER}
-    password: ${MYSQL_PWD}
+    password: ${MYSQL_PASSWORD}
+    hikari:
+      maximum-pool-size: 8
+      minimum-idle: 2
+      connection-timeout: 30000
+      max-lifetime: 1500000
+      idle-timeout: 600000
+      keepalive-time: 120000
+      connection-test-query: SELECT 1
   data:
     redis:
-      host: ${REDIS_HOST:localhost}
-      port: ${REDIS_PORT:6379}
-      password: ${REDIS_PWD:}
+      # home 服务使用独立 Redis DB 隔离家庭空间缓存；host/port/password 已由 application-common.yml 统一下发
       database: 1
 
 mybatis-plus:
@@ -48,55 +38,13 @@ mybatis-plus:
 
 # JWT Authentication Config
 aiot:
-  internal:
-    token: ${AIOT_INTERNAL_TOKEN}
-  device-service:
-    base-url: ${AIOT_DEVICE_SERVICE_URL:http://127.0.0.1:8081}
-  cross-service:
-    http:
-      timeout-ms: ${AIOT_CROSS_SERVICE_TIMEOUT_MS:2000}
-      max-retries: ${AIOT_CROSS_SERVICE_MAX_RETRIES:1}
-      retry-backoff-ms: ${AIOT_CROSS_SERVICE_RETRY_BACKOFF_MS:200}
-      circuit-breaker-failure-threshold: ${AIOT_CROSS_SERVICE_CB_FAILURE_THRESHOLD:3}
-      circuit-breaker-open-ms: ${AIOT_CROSS_SERVICE_CB_OPEN_MS:10000}
+  compensation:
+    home-delete:
+      scan-interval-ms: ${AIOT_HOME_DELETE_COMP_SCAN_INTERVAL_MS:10000}
+      batch-size: ${AIOT_HOME_DELETE_COMP_BATCH_SIZE:20}
+      retry-backoff-seconds: ${AIOT_HOME_DELETE_COMP_RETRY_BACKOFF_SECONDS:30}
   security:
+    validate:
+      entries: "aiot.internal.token:24,aiot.security.jwt.secret:32"
     jwt:
-      secret: ${AIOT_JWT_SECRET}
       expiration: 86400000 # 24 hours
-
-springdoc:
-  api-docs:
-    path: /v3/api-docs
-  swagger-ui:
-    path: /swagger-ui.html
-    tags-sorter: alpha
-    operations-sorter: alpha
-
-management:
-  endpoints:
-    web:
-      exposure:
-        include: health,info,prometheus
-  endpoint:
-    health:
-      probes:
-        enabled: true
-      show-details: when_authorized
-  health:
-    livenessstate:
-      enabled: true
-    readinessstate:
-      enabled: true
-  prometheus:
-    metrics:
-      export:
-        enabled: true
-  metrics:
-    tags:
-      application: ${spring.application.name}
-      env: ${AIOT_ENV:local}
-    distribution:
-      percentiles-histogram:
-        http:
-          server:
-            requests: true
