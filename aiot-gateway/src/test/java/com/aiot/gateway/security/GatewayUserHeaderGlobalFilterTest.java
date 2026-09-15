@@ -1,6 +1,8 @@
 package com.aiot.gateway.security;
 
+import com.aiot.common.security.jwt.AiotJwtService;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 import org.springframework.cloud.gateway.filter.GatewayFilterChain;
 import org.springframework.mock.http.server.reactive.MockServerHttpRequest;
 import org.springframework.mock.web.server.MockServerWebExchange;
@@ -18,7 +20,7 @@ class GatewayUserHeaderGlobalFilterTest {
 
     @Test
     void shouldStripSpoofedUserHeadersWithoutAuthentication() {
-        GatewayUserHeaderGlobalFilter filter = new GatewayUserHeaderGlobalFilter();
+        GatewayUserHeaderGlobalFilter filter = new GatewayUserHeaderGlobalFilter(Mockito.mock(AiotJwtService.class));
         ServerWebExchange exchange = MockServerWebExchange.from(
                 MockServerHttpRequest.get("/api/v1/homes")
                         .header("X-User-Id", "spoofed-user")
@@ -45,7 +47,7 @@ class GatewayUserHeaderGlobalFilterTest {
 
     @Test
     void shouldInjectInternalTokenForInternalPath() {
-        GatewayUserHeaderGlobalFilter filter = new GatewayUserHeaderGlobalFilter();
+        GatewayUserHeaderGlobalFilter filter = new GatewayUserHeaderGlobalFilter(Mockito.mock(AiotJwtService.class));
         ReflectionTestUtils.setField(filter, "internalToken", "internal-token-1234567890");
 
         ServerWebExchange exchange = MockServerWebExchange.from(

@@ -2,6 +2,7 @@ package com.aiot.mqtt.controller;
 
 import com.aiot.common.api.ResultCode;
 import com.aiot.common.exception.BusinessException;
+import com.aiot.common.security.InternalTokenUtils;
 import com.aiot.mqtt.dto.MqttDispatchResponse;
 import com.aiot.mqtt.dto.MqttIngressRequest;
 import com.aiot.mqtt.service.MqttIngressService;
@@ -39,7 +40,7 @@ public class MqttIngressController {
         if (!StringUtils.hasText(internalToken)) {
             throw new BusinessException(ResultCode.FAILED, "服务内部令牌未配置");
         }
-        if (!internalToken.equals(token)) {
+        if (!InternalTokenUtils.matches(internalToken, token)) {
             throw new BusinessException(ResultCode.UNAUTHORIZED, "非法入站调用");
         }
     }

@@ -1,138 +1,143 @@
-server:
-  port: 8080
+spring.config.import: optional:classpath:application-common.yml
 
+# 应用场景：物联网AIOT平台Spring Cloud Gateway网关配置，作为统一流量入口，承载服务路由、安全防护、流量控制、服务治理、可观测性能力
+# 核心方案：Spring Cloud Gateway实现动态路由，Resilience4j提供熔断保护，Redis支持限流，Spring Security JWT完成身份认证，Micrometer实现可观测性
+server:
+  port: 8080 # 网关服务监听端口，对外提供HTTP接入
 spring:
   application:
     name: aiot-gateway
-  config:
-    import: optional:nacos:${spring.application.name}.yaml?group=${NACOS_CONFIG_GROUP:DEFAULT_GROUP}&namespace=${NACOS_NAMESPACE:public}
   autoconfigure:
-    exclude:
-      - org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration
-      - org.mybatis.spring.boot.autoconfigure.MybatisAutoConfiguration
+    exclude: # 排除不需要的自动配置类，减少不必要的依赖加载
+      - org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration # 网关不直接操作数据库，排除数据源自动配置
+      - org.mybatis.spring.boot.autoconfigure.MybatisAutoConfiguration # 无MyBatis ORM需求，排除MyBatis自动配置
   cloud:
-    nacos:
-      discovery:
-        server-addr: ${NACOS_ADDR:127.0.0.1:8848}
-        namespace: ${NACOS_NAMESPACE:public}
-        group: ${NACOS_DISCOVERY_GROUP:DEFAULT_GROUP}
-        register-enabled: ${NACOS_REGISTER_ENABLED:true}
-        username: ${NACOS_USERNAME:}
-        password: ${NACOS_PASSWORD:}
-      config:
-        server-addr: ${NACOS_ADDR:127.0.0.1:8848}
-        namespace: ${NACOS_NAMESPACE:public}
-        group: ${NACOS_CONFIG_GROUP:DEFAULT_GROUP}
-        file-extension: yaml
-        username: ${NACOS_USERNAME:}
-        password: ${NACOS_PASSWORD:}
     gateway:
       discovery:
         locator:
-          enabled: false
-      default-filters:
-        - RemoveRequestHeader=X-User-Id
-        - RemoveRequestHeader=X-User-Phone
-        - RemoveRequestHeader=X-Internal-Token
-      routes:
-        - id: aiot-device-service
-          uri: lb://aiot-device-service
-          predicates:
-            - Path=/api/v1/devices/**,/api/v1/ota/**,/api/v1/provision/**
+          enabled: false # 关闭自动服务发现生成路由，使用手动配置的路由规则保证可控性
+      # 注意：身份头（X-User-Id/X-Global-User-Id/X-User-Phone/X-Internal-Token）的清空与可信注入
+      # 统一由 GatewayUserHeaderGlobalFilter 负责（先清空伪造头，再注入 JWT 解析出的可信身份）。
+      # 这里不再使用 RemoveRequestHeader 默认过滤器：它会作为路由级过滤器在 GlobalFilter 之后执行，
+      # 导致注入的可信身份头被二次删除，下游服务拿不到 X-User-Id 而统一返回 401。
+      routes: # 手动配置的路由规则，转发请求到对应后端微服务
+        - id: aiot-device-service # 设备管理服务路由唯一标识
+          uri: lb://aiot-device-service # 通过 Nacos 服务发现负载均衡转发
+          predicates: # 路由匹配条件，符合路径规则的请求转发
+            - Path=/api/v1/devices/**,/api/v1/ota/**,/api/v1/provision/**,/api/v1/products/**,/api/v1/admin-console/**,/admin,/admin/** # 设备管理、OTA升级、设备预调配、产品管理、后台管理、后台静态UI
           filters:
-            - name: CircuitBreaker
+            - name: CircuitBreaker # 开启熔断器，防止设备服务故障拖垮网关
               args:
-                name: deviceCircuitBreaker
-        - id: aiot-auth-service
-          uri: lb://aiot-auth-service
+                name: deviceCircuitBreaker # 熔断器实例名称，与Resilience4j配置对应
+        - id: aiot-emqx # EMQX 服务器回调路由（设备鉴权 + 上下线 webhook）
+          uri: lb://aiot-auth-service # 通过 Nacos 服务发现负载均衡转发
           predicates:
-            - Path=/api/v1/emqx/**,/api/v1/auth/**
+            - Path=/api/v1/emqx/** # EMQX 设备鉴权与状态事件回调
           filters:
-            - name: RequestRateLimiter
+            - name: RequestRateLimiter # 保护性限流：仅防 EMQX 异常风暴，不按 IP 误伤合法设备流量
               args:
-                redis-rate-limiter.replenishRate: 60
-                redis-rate-limiter.burstCapacity: 120
-                key-resolver: "#{@ipKeyResolver}"
-            - name: CircuitBreaker
+                redis-rate-limiter.replenishRate: 5000 # 每秒补充 5000 令牌，支撑设备上下线风暴
+                redis-rate-limiter.burstCapacity: 20000 # 允许的最大突发，吸收 10000 设备瞬时上线并留重试余量
+                key-resolver: "#{@pathKeyResolver}" # 按 EMQX 路由全局维度（HMAC+时间戳+防重放已兜底准入安全）
+            - name: CircuitBreaker # 开启熔断器，认证服务故障时快速熔断避免雪崩
               args:
-                name: authCircuitBreaker
-        - id: aiot-home-service
-          uri: lb://aiot-home-service
+                name: emqxCircuitBreaker # 设备回调专用熔断器，避免与用户登录熔断器交叉污染
+        - id: aiot-auth-service # 身份认证服务路由唯一标识
+          uri: lb://aiot-auth-service # 通过 Nacos 服务发现负载均衡转发
           predicates:
-            - Path=/api/v1/users/**,/api/v1/homes/**,/api/v1/rooms/**
+            - Path=/api/v1/auth/** # 用户登录认证相关接口匹配规则
           filters:
-            - name: RequestRateLimiter
+            - name: RequestRateLimiter # 开启请求限流，保护认证服务不被突发流量打满
               args:
-                redis-rate-limiter.replenishRate: 30
-                redis-rate-limiter.burstCapacity: 60
-                key-resolver: "#{@ipKeyResolver}"
-            - name: CircuitBreaker
+                redis-rate-limiter.replenishRate: 60 # 每秒允许60个请求匀速通过
+                redis-rate-limiter.burstCapacity: 120 # 允许的最大突发请求数，应对短期流量波动
+                key-resolver: "#{@ipKeyResolver}" # 按客户端IP作为限流维度，单IP独立限制
+            - name: CircuitBreaker # 开启熔断器，认证服务故障时快速熔断避免雪崩
               args:
-                name: homeCircuitBreaker
-  data:
-    redis:
-      host: ${REDIS_HOST:127.0.0.1}
-      port: ${REDIS_PORT:6379}
-      timeout: 3s
-
+                name: authCircuitBreaker # 认证服务熔断器实例名称
+        - id: aiot-rule-engine # 规则引擎服务路由唯一标识
+          uri: lb://aiot-rule-engine # 通过 Nacos 服务发现负载均衡转发
+          predicates:
+            - Path=/api/v1/ai/**,/api/v1/admin/**,/api/v1/ops/** # AI智能分析、后台管理、死信运维相关接口匹配规则
+          filters:
+            - name: CircuitBreaker # 开启熔断器，规则引擎故障时隔离故障
+              args:
+                name: ruleEngineCircuitBreaker # 规则引擎熔断器实例名称
+        - id: aiot-home-service # 家庭空间管理服务路由唯一标识
+          uri: lb://aiot-home-service # 通过 Nacos 服务发现负载均衡转发
+          predicates:
+            - Path=/api/v1/users/**,/api/v1/homes/**,/api/v1/rooms/** # 用户管理、家庭空间、房间管理相关接口匹配规则
+          filters:
+            - name: RequestRateLimiter # 开启请求限流，家庭接口访问频次高，保护服务稳定性
+              args:
+                redis-rate-limiter.replenishRate: 200 # 每秒允许200个请求匀速通过，兼容并发注册/登录突发
+                redis-rate-limiter.burstCapacity: 400 # 最大突发请求数，吸收种子阶段瞬时注册登录峰
+                key-resolver: "#{@ipKeyResolver}" # 按客户端IP限流
+            - name: CircuitBreaker # 开启熔断器，家庭服务故障时隔离
+              args:
+                name: homeCircuitBreaker # 家庭服务熔断器实例名称
 aiot:
-  internal:
-    token: ${AIOT_INTERNAL_TOKEN:}
   security:
     jwt:
-      secret: ${AIOT_JWT_SECRET}
-      issuer: ${AIOT_JWT_ISSUER:}
-      audience: ${AIOT_JWT_AUDIENCE:}
-      require-jti: ${AIOT_JWT_REQUIRE_JTI:true}
-      clock-skew-seconds: ${AIOT_JWT_CLOCK_SKEW_SECONDS:60}
+      issuer: ${AIOT_JWT_ISSUER:} # JWT签发方标识，可选配置，校验令牌来源
+      audience: ${AIOT_JWT_AUDIENCE:} # JWT接收方标识，可选配置，校验令牌接收对象
+      require-jti: ${AIOT_JWT_REQUIRE_JTI:true} # 强制JWT携带唯一标识，支持令牌黑名单实现主动注销
+      clock-skew-seconds: ${AIOT_JWT_CLOCK_SKEW_SECONDS:60} # 令牌时间校验允许的时钟偏移，避免服务器时间不同步导致校验失败
+springdoc:
+  swagger-ui:
+    urls:
+      - name: device-service
+        url: /v3/api-docs/device
+      - name: auth-service
+        url: /v3/api-docs/auth
+      - name: home-service
+        url: /v3/api-docs/home
+      - name: rule-engine
+        url: /v3/api-docs/rule-engine
 
 resilience4j:
   circuitbreaker:
-    instances:
+    instances: # 各服务熔断器统一参数配置，故障时自动熔断保护
       authCircuitBreaker:
+        slidingWindowType: COUNT_BASED # 滑动窗口类型，基于请求数统计熔断指标
+        slidingWindowSize: 50 # 统计窗口大小，最近50次请求作为熔断判断依据
+        failureRateThreshold: 50 # 失败率阈值，超过50%则触发熔断
+        minimumNumberOfCalls: 20 # 最小统计请求数，不满20次不触发熔断，避免误判
+        waitDurationInOpenState: 10s # 熔断开启后持续10秒，之后尝试放行探测服务恢复
+      emqxCircuitBreaker: # 设备回调专用熔断器，与用户认证熔断器隔离，避免设备风暴掐断用户登录
+        slidingWindowType: COUNT_BASED
+        slidingWindowSize: 100 # 设备回调高频，用更大窗口降低瞬时抖动误触发概率
+        failureRateThreshold: 50
+        minimumNumberOfCalls: 50
+        waitDurationInOpenState: 10s
+      homeCircuitBreaker: # 家庭服务熔断器参数，与认证服务一致
         slidingWindowType: COUNT_BASED
         slidingWindowSize: 50
         failureRateThreshold: 50
         minimumNumberOfCalls: 20
         waitDurationInOpenState: 10s
-      homeCircuitBreaker:
+      deviceCircuitBreaker: # 设备服务熔断器参数，与其他服务一致
         slidingWindowType: COUNT_BASED
         slidingWindowSize: 50
         failureRateThreshold: 50
         minimumNumberOfCalls: 20
         waitDurationInOpenState: 10s
-      deviceCircuitBreaker:
+      ruleEngineCircuitBreaker: # 规则引擎熔断器参数，与其他服务一致
         slidingWindowType: COUNT_BASED
         slidingWindowSize: 50
         failureRateThreshold: 50
         minimumNumberOfCalls: 20
         waitDurationInOpenState: 10s
-
-management:
-  endpoints:
-    web:
-      exposure:
-        include: health,info,prometheus
-  endpoint:
-    health:
-      probes:
-        enabled: true
-      show-details: when_authorized
-  health:
-    livenessstate:
-      enabled: true
-    readinessstate:
-      enabled: true
-  prometheus:
-    metrics:
-      export:
-        enabled: true
-  metrics:
-    tags:
-      application: ${spring.application.name}
-      env: ${AIOT_ENV:local}
-    distribution:
-      percentiles-histogram:
-        http:
-          server:
-            requests: true
+  timelimiter:
+    # Spring Cloud Gateway CircuitBreaker 过滤器默认使用 Resilience4j TimeLimiter 1s 超时。
+    # 1000 并发设备上下线风暴下，auth-service 因 DB/Redis 连接池排队导致单请求耗时>1s，
+    # 被误判为超时(504)并计入熔断失败率，最终触发 emqxCircuitBreaker 打开返回 503。
+    # 将超时放宽到 30s，慢但成功的请求不再被误杀，熔断仅对真实 5xx 生效。
+    configs:
+      default:
+        timeout-duration: 30s
+        cancel-running-future: false
+    instances:
+      emqxCircuitBreaker:
+        timeout-duration: 30s
+        cancel-running-future: false

@@ -1,60 +1,20 @@
+spring.config.import: optional:classpath:application-common.yml
+
 server:
   port: 8085
+  netty:
+    connection-timeout: 30s
+    idle-timeout: 60s
+  error:
+    include-stacktrace: never
 
 spring:
   application:
     name: aiot-mqtt-adapter
-  config:
-    import: optional:nacos:${spring.application.name}.yaml?group=${NACOS_CONFIG_GROUP:DEFAULT_GROUP}&namespace=${NACOS_NAMESPACE:public}
-  cloud:
-    nacos:
-      discovery:
-        server-addr: ${NACOS_ADDR:127.0.0.1:8848}
-        namespace: ${NACOS_NAMESPACE:public}
-        group: ${NACOS_DISCOVERY_GROUP:DEFAULT_GROUP}
-        enabled: ${NACOS_DISCOVERY_ENABLED:true}
-        register-enabled: ${NACOS_REGISTER_ENABLED:true}
-        username: ${NACOS_USERNAME:}
-        password: ${NACOS_PASSWORD:}
-      config:
-        server-addr: ${NACOS_ADDR:127.0.0.1:8848}
-        namespace: ${NACOS_NAMESPACE:public}
-        group: ${NACOS_CONFIG_GROUP:DEFAULT_GROUP}
-        file-extension: yaml
-        username: ${NACOS_USERNAME:}
-        password: ${NACOS_PASSWORD:}
+    version: ${APP_VERSION:1.0.0}
+    env: ${SPRING_PROFILES_ACTIVE:dev}
 
 aiot:
-  internal:
-    token: ${AIOT_INTERNAL_TOKEN:}
-  data-parser:
-    base-url: ${AIOT_DATA_PARSER_BASE_URL:http://127.0.0.1:8086}
-
-management:
-  endpoints:
-    web:
-      exposure:
-        include: health,info,prometheus
-  endpoint:
-    health:
-      probes:
-        enabled: true
-      show-details: when_authorized
-  health:
-    livenessstate:
-      enabled: true
-    readinessstate:
-      enabled: true
-  prometheus:
-    metrics:
-      export:
-        enabled: true
-  metrics:
-    tags:
-      application: ${spring.application.name}
-      env: ${AIOT_ENV:local}
-    distribution:
-      percentiles-histogram:
-        http:
-          server:
-            requests: true
+  security:
+    validate:
+      entries: "aiot.internal.token:24"

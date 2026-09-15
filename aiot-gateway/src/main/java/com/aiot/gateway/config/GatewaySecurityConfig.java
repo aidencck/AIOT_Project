@@ -7,6 +7,7 @@ import com.aiot.gateway.security.JwtReactiveAuthenticationManager;
 import com.aiot.gateway.security.ResultServerAccessDeniedHandler;
 import com.aiot.gateway.security.ResultServerAuthenticationEntryPoint;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
@@ -22,6 +23,7 @@ import org.springframework.util.AntPathMatcher;
 import org.springframework.util.StringUtils;
 import reactor.core.publisher.Mono;
 
+import java.util.ArrayList;
 import java.util.List;
 
 @Configuration
@@ -31,16 +33,26 @@ public class GatewaySecurityConfig {
     /**
      * 与历史 JwtAuthGlobalFilter 保持一致的白名单。
      */
-    public static final List<String> WHITELIST = List.of(
+    public static final List<String> BASE_WHITELIST = List.of(
             "/actuator/**",
-            "/v3/api-docs/**",
-            "/swagger-ui/**",
             "/api/v1/emqx/auth",
             "/api/v1/emqx/webhook",
             "/api/v1/users/login",
             "/api/v1/users/register",
             "/api/v1/provision/exchange"
     );
+
+    public static final List<String> OPENAPI_WHITELIST = List.of(
+            "/v3/api-docs/**",
+            "/swagger-ui/**",
+            "/swagger-ui.html"
+    );
+
+    private final boolean openApiPublicEnabled;
+
+    public GatewaySecurityConfig(@Value("${aiot.openapi.public.enabled:false}") boolean openApiPublicEnabled) {
+        this.openApiPublicEnabled = openApiPublicEnabled;
+    }
 
     @Bean
     public ReactiveAuthenticationManager jwtReactiveAuthenticationManager(AiotJwtService jwtService) {
@@ -87,7 +99,7 @@ public class GatewaySecurityConfig {
                         .accessDeniedHandler(accessDeniedHandler)
                 )
                 .authorizeExchange(ex -> ex
-                        .pathMatchers(WHITELIST.toArray(String[]::new)).permitAll()
+                        .pathMatchers(whitelist().toArray(String[]::new)).permitAll()
                         .anyExchange().authenticated()
                 )
                 .addFilterAt(jwtAuthFilter, SecurityWebFiltersOrder.AUTHENTICATION)
@@ -106,12 +118,24 @@ public class GatewaySecurityConfig {
             }
 
             AntPathMatcher matcher = new AntPathMatcher();
-            for (String pattern : WHITELIST) {
+            for (String pattern : whitelist()) {
                 if (pattern != null && matcher.match(pattern, path)) {
                     return ServerWebExchangeMatcher.MatchResult.notMatch();
                 }
             }
             return ServerWebExchangeMatcher.MatchResult.match();
         };
+    }
+
+    static List<String> buildWhitelist(boolean openApiPublicEnabled) {
+        List<String> whitelist = new ArrayList<>(BASE_WHITELIST);
+        if (openApiPublicEnabled) {
+            whitelist.addAll(OPENAPI_WHITELIST);
+        }
+        return List.copyOf(whitelist);
+    }
+
+    List<String> whitelist() {
+        return buildWhitelist(openApiPublicEnabled);
     }
 }

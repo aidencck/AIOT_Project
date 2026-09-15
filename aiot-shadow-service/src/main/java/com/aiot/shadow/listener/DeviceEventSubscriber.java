@@ -24,6 +24,10 @@ import java.util.Objects;
 @Component
 public class DeviceEventSubscriber implements StreamListener<String, MapRecord<String, String, String>> {
 
+    private static final String SHADOW_AUDIT_KEY_PREFIX = "aiot:shadow:audit:";
+    private static final Duration SHADOW_AUDIT_TTL = Duration.ofDays(7);
+    private static final int SHADOW_AUDIT_PAYLOAD_SUMMARY_MAX_LENGTH = 1000;
+
     private final ObjectMapper objectMapper;
     private final StringRedisTemplate stringRedisTemplate;
     private final String deviceStatusStream;
@@ -110,8 +114,7 @@ public class DeviceEventSubscriber implements StreamListener<String, MapRecord<S
             DeviceEvent event = processWithRetry(body, message);
             if (event.getEventType() == DeviceEventType.SHADOW_DESIRED_UPDATED
                     || event.getEventType() == DeviceEventType.SHADOW_REPORTED_UPDATED) {
-                log.info("Shadow event consumed, eventType={}, deviceId={}, eventId={}, version={}, recordId={}",
-                        event.getEventType(), event.getDeviceId(), event.getEventId(), event.getVersion(), message.getId());
+                recordShadowAudit(event, String.valueOf(message.getId()));
             }
             shouldAck = true;
             successCounter.increment();
@@ -160,6 +163,54 @@ public class DeviceEventSubscriber implements StreamListener<String, MapRecord<S
         }
     }
 
+    /**
+     * 影子变更审计：将影子 desired/reported 更新事件的结构化摘要写入 Redis Hash。
+     * key=aiot:shadow:audit:{deviceId}，field={eventType}:{eventId|recordId}，幂等覆盖写，TTL 7 天。
+     */
+    private void recordShadowAudit(DeviceEvent event, String recordId) {
+        String deviceId = event.getDeviceId();
+        if (deviceId == null) {
+            log.warn("Skip shadow audit without deviceId, eventType={}, recordId={}", event.getEventType(), recordId);
+            return;
+        }
+        String key = SHADOW_AUDIT_KEY_PREFIX + deviceId;
+        String eventKey = event.getEventId() != null ? event.getEventId() : recordId;
+        String field = event.getEventType().name() + ":" + eventKey;
+        try {
+            Map<String, Object> summary = new LinkedHashMap<>();
+            summary.put("version", event.getVersion());
+            summary.put("timestamp", event.getTimestamp());
+            summary.put("payload", summarizePayload(event.getPayload()));
+            String value = objectMapper.writeValueAsString(summary);
+            stringRedisTemplate.opsForHash().put(key, field, value);
+            stringRedisTemplate.expire(key, SHADOW_AUDIT_TTL);
+            log.info("Shadow audit recorded, key={}, field={}, deviceId={}, eventType={}, version={}",
+                    key, field, deviceId, event.getEventType(), event.getVersion());
+        } catch (Exception ex) {
+            log.warn("Failed to record shadow audit, key={}, field={}, recordId={}", key, field, recordId, ex);
+        }
+    }
+
+    private String summarizePayload(Object payload) {
+        if (payload == null) {
+            return null;
+        }
+        String json;
+        if (payload instanceof String) {
+            json = (String) payload;
+        } else {
+            try {
+                json = objectMapper.writeValueAsString(payload);
+            } catch (Exception ex) {
+                json = String.valueOf(payload);
+            }
+        }
+        if (json.length() > SHADOW_AUDIT_PAYLOAD_SUMMARY_MAX_LENGTH) {
+            return json.substring(0, SHADOW_AUDIT_PAYLOAD_SUMMARY_MAX_LENGTH);
+        }
+        return json;
+    }
+
     private boolean acknowledge(MapRecord<String, String, String> message) {
         try {
             stringRedisTemplate.opsForStream().acknowledge(
@@ -193,7 +244,7 @@ public class DeviceEventSubscriber implements StreamListener<String, MapRecord<S
             return true;
         } catch (Exception ex) {
             dlqPublishFailedCounter.increment();
-            log.warn("Failed to publish stream message to DLQ, dlqStream={}, recordId={}",
+            log.error("Failed to publish stream message to DLQ, dlqStream={}, recordId={}",
                     dlqStream, message.getId(), ex);
             return false;
         }

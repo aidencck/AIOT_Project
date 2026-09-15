@@ -33,7 +33,7 @@ public class MqttIngressServiceImpl implements MqttIngressService {
     public MqttIngressServiceImpl(
             RestTemplate restTemplate,
             CrossServiceHttpExecutor crossServiceHttpExecutor,
-            @Value("${aiot.data-parser.base-url:http://127.0.0.1:8086}") String parserBaseUrl,
+            @Value("${aiot.data-parser.base-url:lb://aiot-data-parser}") String parserBaseUrl,
             @Value("${aiot.internal.token:}") String internalToken) {
         this.restTemplate = restTemplate;
         this.crossServiceHttpExecutor = crossServiceHttpExecutor;

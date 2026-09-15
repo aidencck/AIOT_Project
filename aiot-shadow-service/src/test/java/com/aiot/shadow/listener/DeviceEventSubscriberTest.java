@@ -8,9 +8,11 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.data.redis.connection.stream.MapRecord;
 import org.springframework.data.redis.connection.stream.RecordId;
+import org.springframework.data.redis.core.HashOperations;
 import org.springframework.data.redis.core.StreamOperations;
 import org.springframework.data.redis.core.StringRedisTemplate;
 
+import java.time.Duration;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -26,6 +28,7 @@ class DeviceEventSubscriberTest {
 
     private StringRedisTemplate stringRedisTemplate;
     private StreamOperations<String, Object, Object> streamOperations;
+    private HashOperations<String, Object, Object> hashOperations;
     private DeviceEventSubscriber subscriber;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
@@ -34,7 +37,9 @@ class DeviceEventSubscriberTest {
     void setUp() {
         stringRedisTemplate = mock(StringRedisTemplate.class);
         streamOperations = mock(StreamOperations.class);
+        hashOperations = mock(HashOperations.class);
         when(stringRedisTemplate.opsForStream()).thenReturn(streamOperations);
+        when(stringRedisTemplate.opsForHash()).thenReturn(hashOperations);
         subscriber = new DeviceEventSubscriber(
                 objectMapper,
                 stringRedisTemplate,
@@ -66,6 +71,28 @@ class DeviceEventSubscriberTest {
 
         verify(streamOperations).acknowledge("aiot:stream:device-event", "aiot-shadow-service-group", RecordId.of("1-0"));
         verify(streamOperations, never()).add(any(MapRecord.class));
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void onMessage_shouldRecordShadowAuditForShadowUpdateEvent() throws Exception {
+        MapRecord<String, String, String> record = mock(MapRecord.class);
+        when(record.getId()).thenReturn(RecordId.of("1-0"));
+        when(record.getStream()).thenReturn("aiot:stream:device-event");
+        DeviceEvent event = DeviceEvent.builder()
+                .eventId("evt-audit")
+                .eventType(DeviceEventType.SHADOW_DESIRED_UPDATED)
+                .deviceId("d-audit")
+                .timestamp(1700000000000L)
+                .version(3L)
+                .payload(Map.of("desired", "on"))
+                .build();
+        when(record.getValue()).thenReturn(Map.of("payload", objectMapper.writeValueAsString(event)));
+
+        subscriber.onMessage(record);
+
+        verify(hashOperations).put(eq("aiot:shadow:audit:d-audit"), eq("SHADOW_DESIRED_UPDATED:evt-audit"), any());
+        verify(stringRedisTemplate).expire(eq("aiot:shadow:audit:d-audit"), eq(Duration.ofDays(7)));
     }
 
     @Test
