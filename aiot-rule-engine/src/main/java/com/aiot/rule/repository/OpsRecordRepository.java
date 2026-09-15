@@ -11,7 +11,6 @@ import org.springframework.stereotype.Repository;
 import org.springframework.util.StringUtils;
 
 import java.util.List;
-import java.util.Map;
 import java.util.Objects;
 import java.util.stream.Collectors;
 
@@ -22,7 +21,6 @@ public class OpsRecordRepository {
     private static final String ALARM_STORE_KEY = "aiot:ops:alarms";
     private static final String WORK_ORDER_STORE_KEY = "aiot:ops:work-orders";
     private static final String AUDIT_STORE_KEY = "aiot:ops:audits";
-    private static final String DEVICE_STATUS_KEY = "aiot:ops:device-status";
 
     private final RedisTemplate<String, Object> redisTemplate;
     private final ObjectMapper objectMapper;
@@ -30,14 +28,6 @@ public class OpsRecordRepository {
     public OpsRecordRepository(RedisTemplate<String, Object> redisTemplate, ObjectMapper objectMapper) {
         this.redisTemplate = redisTemplate;
         this.objectMapper = objectMapper;
-    }
-
-    public void saveDeviceStatus(String deviceId, String status) {
-        redisTemplate.opsForHash().put(DEVICE_STATUS_KEY, deviceId, status);
-    }
-
-    public Map<Object, Object> findAllDeviceStatuses() {
-        return redisTemplate.opsForHash().entries(DEVICE_STATUS_KEY);
     }
 
     public void saveAlarm(AlarmRecord alarm) {

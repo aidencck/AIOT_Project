@@ -6,6 +6,7 @@ import com.aiot.common.config.RedisUtils;
 import com.aiot.rule.dto.RuleApproveRequest;
 import com.aiot.rule.dto.RuleDraftRequest;
 import com.aiot.rule.dto.RuleDraftResponse;
+import com.aiot.rule.dto.RuleUpdateRequest;
 import com.aiot.rule.model.RuleDefinition;
 import com.aiot.rule.repository.RuleDefinitionRepository;
 import lombok.extern.slf4j.Slf4j;
@@ -14,8 +15,10 @@ import org.springframework.util.StringUtils;
 import org.springframework.beans.factory.annotation.Value;
 
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
+import java.util.stream.Collectors;
 
 @Slf4j
 @Service
@@ -27,7 +30,9 @@ public class RuleLifecycleService {
     private final RuleActionExecutor ruleActionExecutor;
     private final OpsClosureService opsClosureService;
 
-    @Value("${aiot.rule.execution.idempotency-ttl-seconds:600}")
+    // 幂等 TTL 需覆盖 pending-reclaim 的重投窗口（maxDeliveryCount × minIdleMs = 10 × 60s = 600s），
+    // 取 1800s（30 分钟）留足余量，避免重投后仍命中过期前残留的幂等键。
+    @Value("${aiot.rule.execution.idempotency-ttl-seconds:1800}")
     private long executionIdempotencyTtlSeconds;
 
     public RuleLifecycleService(RuleDefinitionRepository ruleDefinitionRepository,
@@ -50,7 +55,12 @@ public class RuleLifecycleService {
         } catch (IllegalArgumentException ex) {
             throw new IllegalArgumentException("非法事件类型: " + eventType);
         }
-        String actionType = StringUtils.hasText(request.getActionType()) ? request.getActionType() : "ALARM_CREATE";
+        String actionType = StringUtils.hasText(request.getActionType())
+                ? request.getActionType().trim().toUpperCase()
+                : "ALARM_CREATE";
+        if (!Set.of("WEBHOOK_POST", "ALARM_CREATE", "AI_DIAGNOSE", "ALERT_LOG").contains(actionType)) {
+            throw new IllegalArgumentException("非法动作类型: " + actionType);
+        }
         String actionPayload = StringUtils.hasText(request.getActionPayload())
                 ? request.getActionPayload()
                 : (StringUtils.hasText(request.getRequirement()) ? request.getRequirement() : "设备离线时发送告警");
@@ -70,10 +80,63 @@ public class RuleLifecycleService {
 
     public RuleDraftResponse approveRule(String ruleId, RuleApproveRequest request) {
         RuleDefinition rule = getRule(ruleId);
+        if (!"DRAFT".equals(rule.getStatus())) {
+            throw new IllegalArgumentException("仅草稿状态可审批，当前状态: " + rule.getStatus());
+        }
         rule.setStatus("APPROVED");
         rule.setApprovedBy(request.getApprover());
+        rule.setComment(request.getComment());
+        rule.setApprovedAt(System.currentTimeMillis());
         saveRule(rule);
         return toResponse(rule);
+    }
+
+    public RuleDraftResponse rejectRule(String ruleId, String rejectReason) {
+        RuleDefinition rule = getRule(ruleId);
+        if (!"DRAFT".equals(rule.getStatus())) {
+            throw new IllegalArgumentException("仅草稿状态可驳回，当前状态: " + rule.getStatus());
+        }
+        rule.setStatus("REJECTED");
+        rule.setRejectReason(rejectReason);
+        saveRule(rule);
+        return toResponse(rule);
+    }
+
+    public RuleDraftResponse updateRule(String ruleId, RuleUpdateRequest request) {
+        RuleDefinition rule = getRule(ruleId);
+        if (!"DRAFT".equals(rule.getStatus())) {
+            throw new IllegalArgumentException("仅草稿状态可更新，当前状态: " + rule.getStatus());
+        }
+        String eventType = request.getConditionEventType().trim().toUpperCase();
+        try {
+            DeviceEventType.valueOf(eventType);
+        } catch (IllegalArgumentException ex) {
+            throw new IllegalArgumentException("非法事件类型: " + eventType);
+        }
+        String actionType = request.getActionType().trim().toUpperCase();
+        if (!Set.of("WEBHOOK_POST", "ALARM_CREATE", "AI_DIAGNOSE", "ALERT_LOG").contains(actionType)) {
+            throw new IllegalArgumentException("非法动作类型: " + actionType);
+        }
+        rule.setConditionEventType(eventType);
+        rule.setConditionDeviceId(request.getConditionDeviceId());
+        rule.setActionType(actionType);
+        rule.setActionPayload(request.getActionPayload());
+        saveRule(rule);
+        return toResponse(rule);
+    }
+
+    public void deleteRule(String ruleId) {
+        RuleDefinition rule = getRule(ruleId);
+        if (!"DRAFT".equals(rule.getStatus())) {
+            throw new IllegalArgumentException("仅草稿状态可删除，当前状态: " + rule.getStatus());
+        }
+        ruleDefinitionRepository.deleteById(ruleId);
+    }
+
+    public List<RuleDraftResponse> listRules(String status) {
+        return ruleDefinitionRepository.findByStatus(status).stream()
+                .map(this::toResponse)
+                .collect(Collectors.toList());
     }
 
     public void executeByEvent(DeviceEvent event) {
@@ -81,7 +144,8 @@ public class RuleLifecycleService {
             return;
         }
         opsClosureService.refreshDeviceStatus(event);
-        for (RuleDefinition rule : loadAllRules()) {
+        for (RuleDefinition rule : ruleDefinitionRepository.findByEventType(
+                event.getEventType() == null ? null : event.getEventType().name())) {
             if (!"APPROVED".equals(rule.getStatus())) {
                 continue;
             }

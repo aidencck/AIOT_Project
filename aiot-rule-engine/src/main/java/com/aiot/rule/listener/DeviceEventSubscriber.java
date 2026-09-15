@@ -194,7 +194,7 @@ public class DeviceEventSubscriber implements StreamListener<String, MapRecord<S
             return true;
         } catch (Exception ex) {
             dlqPublishFailedCounter.increment();
-            log.warn("Failed to publish stream message to DLQ, dlqStream={}, recordId={}",
+            log.error("Failed to publish stream message to DLQ, dlqStream={}, recordId={}",
                     dlqStream, message.getId(), ex);
             return false;
         }

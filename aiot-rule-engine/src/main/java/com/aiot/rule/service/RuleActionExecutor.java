@@ -1,9 +1,13 @@
 package com.aiot.rule.service;
 
+import com.aiot.common.dto.ai.AiDiagnosisRequest;
 import com.aiot.common.event.DeviceEvent;
+import com.aiot.common.event.DeviceEventType;
 import com.aiot.rule.model.RuleDefinition;
+import com.aiot.rule.security.WebhookUrlValidator;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
@@ -15,6 +19,7 @@ import java.net.http.HttpResponse;
 import java.time.Duration;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.concurrent.Executor;
 
 @Slf4j
 @Component
@@ -22,14 +27,27 @@ public class RuleActionExecutor {
 
     private final ObjectMapper objectMapper;
     private final OpsClosureService opsClosureService;
-    private final HttpClient httpClient = HttpClient.newHttpClient();
+    private final AiDiagnosisService aiDiagnosisService;
+    private final Executor executor;
+    private final WebhookUrlValidator webhookUrlValidator;
+    // 禁用自动重定向，防止 SSRF 通过 3xx 跳转到内网/元数据地址绕过校验
+    private final HttpClient httpClient = HttpClient.newBuilder()
+            .followRedirects(HttpClient.Redirect.NEVER)
+            .build();
 
     @Value("${aiot.rule.action.webhook.timeout-ms:2000}")
     private long webhookTimeoutMs;
 
-    public RuleActionExecutor(ObjectMapper objectMapper, OpsClosureService opsClosureService) {
+    public RuleActionExecutor(ObjectMapper objectMapper,
+                              OpsClosureService opsClosureService,
+                              AiDiagnosisService aiDiagnosisService,
+                              @Qualifier("applicationTaskExecutor") Executor executor,
+                              WebhookUrlValidator webhookUrlValidator) {
         this.objectMapper = objectMapper;
         this.opsClosureService = opsClosureService;
+        this.aiDiagnosisService = aiDiagnosisService;
+        this.executor = executor;
+        this.webhookUrlValidator = webhookUrlValidator;
     }
 
     public void execute(RuleDefinition rule, DeviceEvent event) {
@@ -40,6 +58,10 @@ public class RuleActionExecutor {
         }
         if ("ALARM_CREATE".equals(actionType)) {
             executeAlarmCreate(rule, event);
+            return;
+        }
+        if ("AI_DIAGNOSE".equals(actionType)) {
+            executeAiDiagnosis(rule, event);
             return;
         }
         executeAlertLog(rule, event);
@@ -58,6 +80,36 @@ public class RuleActionExecutor {
                 rule.getRuleId(), event.getEventId(), event.getEventType(), event.getDeviceId());
     }
 
+    private void executeAiDiagnosis(RuleDefinition rule, DeviceEvent event) {
+        String sceneType = mapSceneType(event.getEventType());
+        if (sceneType == null) {
+            return;
+        }
+        AiDiagnosisRequest request = new AiDiagnosisRequest();
+        request.setDeviceId(event.getDeviceId());
+        request.setEventId(event.getEventId());
+        request.setSceneType(sceneType);
+        executor.execute(() -> {
+            try {
+                aiDiagnosisService.diagnose(request);
+            } catch (Exception e) {
+                log.warn("AI 诊断异步执行失败, deviceId={}", event.getDeviceId(), e);
+            }
+        });
+    }
+
+    private String mapSceneType(DeviceEventType eventType) {
+        if (eventType == null) {
+            return null;
+        }
+        return switch (eventType) {
+            case DEVICE_OFFLINE -> "OFFLINE_FLAP";
+            case SHADOW_DESIRED_UPDATED, SHADOW_REPORTED_UPDATED -> "SHADOW_DIFF";
+            case DEVICE_PROVISION_FAILED, DEVICE_PROVISION_REJECTED -> "PROVISION_FAILURE";
+            default -> null;
+        };
+    }
+
     private void executeWebhook(RuleDefinition rule, DeviceEvent event) {
         String rawPayload = rule.getActionPayload();
         if (!StringUtils.hasText(rawPayload)) {
@@ -67,6 +119,14 @@ public class RuleActionExecutor {
         String url = extractUrl(rawPayload);
         if (!StringUtils.hasText(url)) {
             log.warn("Rule WEBHOOK_POST skipped: invalid payload url, ruleId={}", rule.getRuleId());
+            return;
+        }
+        // SSRF 防护：发起外发请求前校验目标 URL，非法则拒绝并跳过
+        try {
+            webhookUrlValidator.validate(url);
+        } catch (IllegalArgumentException e) {
+            log.warn("Rule WEBHOOK_POST skipped: unsafe url rejected, ruleId={}, reason={}",
+                    rule.getRuleId(), e.getMessage());
             return;
         }
         try {
