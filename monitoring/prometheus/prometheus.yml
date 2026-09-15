@@ -1,9 +1,19 @@
 global:
   scrape_interval: 15s
   evaluation_interval: 15s
+  external_labels:
+    env: local
+    cluster: aiot-compose
+    region: cn-local
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: ["aiot-alertmanager:9093"]
 
 rule_files:
   - /etc/prometheus/alerts/*.yml
+  - /etc/prometheus/rules/*.yml
 
 scrape_configs:
   - job_name: "prometheus"
@@ -25,6 +35,51 @@ scrape_configs:
       - targets: ["aiot-tempo:3200"]
         labels:
           service: "aiot-tempo"
+          domain: "observability"
+
+  - job_name: "mysql"
+    static_configs:
+      - targets: ["aiot-mysqld-exporter:9104"]
+        labels:
+          service: "aiot-mysql"
+          domain: "middleware"
+
+  - job_name: "redis"
+    static_configs:
+      - targets: ["aiot-redis-exporter:9121"]
+        labels:
+          service: "aiot-redis"
+          domain: "middleware"
+
+  - job_name: "emqx"
+    metrics_path: "/api/v5/prometheus/stats"
+    static_configs:
+      - targets: ["aiot-emqx:18083"]
+        labels:
+          service: "aiot-emqx"
+          domain: "middleware"
+
+  - job_name: "nacos"
+    metrics_path: "/nacos/actuator/prometheus"
+    static_configs:
+      - targets: ["aiot-nacos:8848"]
+        labels:
+          service: "aiot-nacos"
+          domain: "middleware"
+
+  - job_name: "alertmanager"
+    static_configs:
+      - targets: ["aiot-alertmanager:9093"]
+        labels:
+          service: "aiot-alertmanager"
+          domain: "observability"
+
+  - job_name: "cadvisor"
+    metrics_path: "/metrics"
+    static_configs:
+      - targets: ["aiot-cadvisor:8080"]
+        labels:
+          service: "aiot-cadvisor"
           domain: "observability"
 
   - job_name: "aiot-gateway"

@@ -13,18 +13,13 @@ datasources:
       manageAlerts: true
 
   - name: Loki
-    uid: loki
+    uid: loki-main
     type: loki
     access: proxy
     url: http://aiot-loki:3100
     editable: false
     jsonData:
       maxLines: 1000
-      derivedFields:
-        - name: trace_id
-          matcherRegex: 'trace(?:ID|Id|id)=([0-9a-zA-Z\\-]+)'
-          datasourceUid: tempo
-          url: '$${__value.raw}'
 
   - name: Tempo
     uid: tempo
@@ -34,7 +29,7 @@ datasources:
     editable: false
     jsonData:
       tracesToLogsV2:
-        datasourceUid: loki
+        datasourceUid: loki-main
         spanStartTimeShift: "-5m"
         spanEndTimeShift: "5m"
         tags:

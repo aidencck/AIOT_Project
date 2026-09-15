@@ -4,17 +4,23 @@ groups:
       - alert: AuthFailureRateHigh
         expr: |
           (
-            sum(rate(http_server_requests_seconds_count{service="aiot-auth-service",uri="/api/v1/emqx/auth",status=~"4..|5.."}[5m]))
+            sum(rate(aiot_auth_emqx_deny_total[5m]))
             /
-            clamp_min(sum(rate(http_server_requests_seconds_count{service="aiot-auth-service",uri="/api/v1/emqx/auth"}[5m])), 1)
+            clamp_min(sum(rate(aiot_auth_emqx_attempt_total[5m])), 1)
           ) > 0.05
         for: 5m
         labels:
           severity: critical
           team: auth
+          service: aiot-auth-service
+          slo: SLO-AUTH-01
         annotations:
           summary: "鉴权失败率过高"
           description: "5分钟窗口内 EMQX 鉴权接口失败率超过5%，请优先排查认证依赖、密钥、回调签名与网关流量。"
+          owner: "auth-oncall"
+          dashboard_url: "grafana://aiot-auth-service-overview"
+          runbook_url: "docs/runbooks/auth-service-incident.md"
+          first_action: "先确认 JWT、内部令牌、Webhook 密钥与 Redis/MySQL 可用性。"
 
       - alert: StreamConsumeFailureRateHigh
         expr: |
@@ -27,9 +33,15 @@ groups:
         labels:
           severity: warning
           team: event
+          service: aiot-stream-pipeline
+          slo: SLO-EVENT-01
         annotations:
           summary: "事件消费失败率过高"
           description: "10分钟窗口内事件消费失败率超过2%，建议检查消费者重试、序列化与下游依赖。"
+          owner: "event-oncall"
+          dashboard_url: "grafana://aiot-event-pipeline"
+          runbook_url: "docs/runbooks/event-pipeline-incident.md"
+          first_action: "优先检查 Redis Stream、消费者组偏移与最近版本变更。"
 
       - alert: DlqGrowthRateHigh
         expr: sum(rate(aiot_stream_dlq_published_total[5m])) > 2
@@ -37,9 +49,15 @@ groups:
         labels:
           severity: critical
           team: event
+          service: aiot-stream-pipeline
+          slo: SLO-EVENT-01
         annotations:
           summary: "DLQ 增长率过高"
           description: "DLQ 每秒新增超过2条，建议立即排查反序列化、规则执行与外部接口异常。"
+          owner: "event-oncall"
+          dashboard_url: "grafana://aiot-event-pipeline"
+          runbook_url: "docs/runbooks/event-pipeline-incident.md"
+          first_action: "先看最近 15 分钟错误日志和下游依赖超时。"
 
       - alert: PendingRecoveryFailureRateHigh
         expr: sum(rate(aiot_stream_pending_recovery_failed_total[5m])) > 0.5
@@ -47,6 +65,184 @@ groups:
         labels:
           severity: warning
           team: event
+          service: aiot-stream-pipeline
+          slo: SLO-EVENT-02
         annotations:
           summary: "Pending 回收失败率偏高"
           description: "pending 回收失败每秒超过0.5次，建议检查 Redis Stream 可用性与消费组状态。"
+          owner: "event-oncall"
+          dashboard_url: "grafana://aiot-event-pipeline"
+          runbook_url: "docs/runbooks/event-pipeline-incident.md"
+          first_action: "检查 pending 数量、消费组状态与 Redis 延迟。"
+
+      - alert: EventBacklogDepthHigh
+        expr: sum(aiot_stream_backlog_length) > (sum(rate(aiot_stream_consume_total[5m])) * 60 + 1000)
+        for: 5m
+        labels:
+          severity: warning
+          team: event
+          service: aiot-stream-pipeline
+          slo: SLO-EVENT-01
+        annotations:
+          summary: "事件流积压深度过高"
+          description: "事件流积压消息数超过「近5分钟平均消费速率×60秒 + 1000 缓冲」并持续 5 分钟，请检查消费者吞吐、下游依赖与规则执行耗时。"
+          owner: "event-oncall"
+          dashboard_url: "grafana://aiot-event-pipeline"
+          runbook_url: "docs/runbooks/event-pipeline-incident.md"
+          first_action: "先看积压曲线、消费速率与 pending 总数，判断是吞吐瓶颈还是下游阻塞。"
+
+      - alert: StreamLengthRetentionHigh
+        expr: max(aiot_stream_length) > 10000
+        for: 5m
+        labels:
+          severity: warning
+          team: event
+          service: aiot-stream-pipeline
+          slo: SLO-EVENT-03
+        annotations:
+          summary: "事件流保留长度超阈值"
+          description: "aiot:stream:device-event 流内条目数(XLEN)超过 10000，XTRIM/MAXLEN 治理可能失效，请检查 aiot.events.stream-maxlen 配置与 StreamRetentionTrimmer 裁剪任务。"
+          owner: "event-oncall"
+          dashboard_url: "grafana://aiot-event-pipeline"
+          runbook_url: "docs/runbooks/event-pipeline-incident.md"
+          first_action: "检查 stream-maxlen 配置、StreamRetentionTrimmer 日志与 redis-cli XLEN/XINFO STREAM。"
+
+      - alert: ApiAvailabilityBurnRateFast
+        expr: |
+          sum(rate(http_server_requests_seconds_count{service="aiot-gateway"}[5m])) > 0.1
+          and
+          (
+            1 - (
+              sum(rate(http_server_requests_seconds_count{service="aiot-gateway",status!~"5.."}[5m]))
+              /
+              clamp_min(sum(rate(http_server_requests_seconds_count{service="aiot-gateway"}[5m])), 0.001)
+            )
+          ) > (1 - 0.9995) * 14.4
+        for: 2m
+        labels:
+          severity: critical
+          team: platform
+          service: aiot-gateway
+          slo: SLO-API-01
+        annotations:
+          summary: "核心 API 可用性预算快速燃尽"
+          description: "核心 API 在 5 分钟窗口内快速消耗 30 天误差预算，请优先检查网关 5xx、限流与下游依赖。"
+          owner: "platform-oncall"
+          dashboard_url: "grafana://aiot-api-slo-overview"
+          runbook_url: "docs/runbooks/api-availability-incident.md"
+          first_action: "先看网关 5xx、熔断器状态与下游 readiness。"
+
+  - name: aiot-observability-self-healing
+    rules:
+      - alert: ObservabilityScrapeTargetDown
+        expr: up{domain=~"middleware|observability"} == 0
+        for: 2m
+        labels:
+          severity: warning
+          team: platform
+          service: aiot-observability
+        annotations:
+          summary: "观测/中间件采集目标失联"
+          description: "job={{ $labels.job }} instance={{ $labels.instance }} 已连续 2 分钟 up=0，Prometheus 无法抓取指标。检查容器存活、监听端口与网络连通性。"
+          owner: "platform-oncall"
+          first_action: "docker ps 确认容器状态，检查 exporter/组件日志与端口。"
+
+      - alert: ObservabilityComponentMissing
+        expr: |
+          absent(up{job="prometheus"})
+          or absent(up{job="loki"})
+          or absent(up{job="tempo"})
+          or absent(up{job="alertmanager"})
+          or absent(up{job="mysql"})
+          or absent(up{job="redis"})
+          or absent(up{job="emqx"})
+          or absent(up{job="nacos"})
+        for: 1m
+        labels:
+          severity: critical
+          team: platform
+          service: aiot-observability
+        annotations:
+          summary: "观测组件指标完全缺失"
+          description: "Prometheus 中不存在上述 job 的 up 指标，说明该采集目标未在 scrape_configs 中配置或组件从未启动。"
+          owner: "platform-oncall"
+          first_action: "检查 prometheus.yml scrape_configs 与 docker compose --profile observability 启动情况。"
+
+      - alert: ObservabilityPipelineWatchdog
+        expr: vector(1)
+        labels:
+          severity: none
+          team: platform
+          service: aiot-observability
+        annotations:
+          summary: "观测告警链路心跳"
+          description: "该告警始终触发，用于验证 Prometheus -> Alertmanager -> ops-router 告警路由链路完整可用（按 repeat_interval 周期性重复）。"
+          owner: "platform-oncall"
+          first_action: "在 Alertmanager 与 ops-router 日志中确认该告警被成功送达。"
+
+  - name: aiot-container-resource
+    rules:
+      - alert: ContainerCpuThrottlingHigh
+        expr: |
+          (
+            sum by (name, image) (rate(container_cpu_cfs_throttled_periods_total{name=~"/?aiot-.*"}[5m]))
+            /
+            clamp_min(sum by (name, image) (rate(container_cpu_cfs_periods_total{name=~"/?aiot-.*"}[5m])), 1)
+          ) > 0.05
+        for: 5m
+        labels:
+          severity: warning
+          team: platform
+          service: aiot-container
+        annotations:
+          summary: "容器 CPU 节流过高"
+          description: "容器 {{ $labels.name }} 在 5 分钟窗口内 CFS 节流周期占比超过5%，CPU 配额被频繁抢占，请检查 CPU limit 与并发负载。"
+          owner: "platform-oncall"
+          first_action: "检查容器 CPU limit、宿主机 CPU 争抢与业务线程池配置。"
+
+      - alert: ContainerMemoryNearLimit
+        expr: |
+          (
+            sum by (name) (container_memory_working_set_bytes{name=~"/?aiot-.*"})
+            /
+            (sum by (name) (container_spec_memory_limit_bytes{name=~"/?aiot-.*"}) > 0)
+          ) > 0.85
+        for: 5m
+        labels:
+          severity: warning
+          team: platform
+          service: aiot-container
+        annotations:
+          summary: "容器内存逼近 limit"
+          description: "容器 {{ $labels.name }} 的 working_set 内存占用超过 limit 的85%，逼近 OOM 阈值，请排查内存泄漏或上调配额。"
+          owner: "platform-oncall"
+          first_action: "查看容器内存曲线、堆外/缓存占用与 JVM -Xmx 配置。"
+
+      - alert: ContainerRestarted
+        expr: changes(container_start_time_seconds{name=~"/?aiot-.*"}[10m]) > 0
+        for: 1m
+        labels:
+          severity: warning
+          team: platform
+          service: aiot-container
+        annotations:
+          summary: "容器发生重启"
+          description: "容器 {{ $labels.name }} 在 10 分钟窗口内启动时间戳发生变化，疑似崩溃或 OOM 重启，请确认重启原因。"
+          owner: "platform-oncall"
+          first_action: "docker inspect 查看 RestartCount 与退出码，核对容器日志与 docker_ops_monitor 审计留痕。"
+
+      - alert: ContainerExitedAbnormally
+        expr: |
+          (time() - container_last_seen{name=~"/?aiot-.*"}) > 300
+          or
+          absent(container_last_seen{job="cadvisor"})
+        for: 5m
+        labels:
+          severity: critical
+          team: platform
+          service: aiot-container
+        annotations:
+          summary: "容器异常退出或失联"
+          description: "容器已 300 秒未被 cadvisor 观测到（container_last_seen 过期/消失）或 cadvisor 采集目标整体丢失，容器可能已异常退出，请结合 exit code 定位非0退出。"
+          owner: "platform-oncall"
+          first_action: "docker ps -a 查看退出容器与 exit code，结合 scripts/docker_ops_monitor.sh events 审计留痕定位根因。"

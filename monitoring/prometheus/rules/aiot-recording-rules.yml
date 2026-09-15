@@ -1,0 +1,81 @@
+groups:
+  - name: aiot-platform-recording
+    interval: 30s
+    rules:
+      - record: aiot:gateway:request_rate5m
+        expr: sum(rate(http_server_requests_seconds_count{service="aiot-gateway",uri!~"/actuator.*"}[5m]))
+
+      - record: aiot:gateway:error_rate5m
+        expr: sum(rate(http_server_requests_seconds_count{service="aiot-gateway",status=~"5..",uri!~"/actuator.*"}[5m]))
+
+      - record: aiot:gateway:availability5m
+        expr: (1 - (aiot:gateway:error_rate5m / clamp_min(aiot:gateway:request_rate5m, 0.001))) or vector(1)
+
+      - record: aiot:gateway:latency:p95_5m
+        expr: histogram_quantile(0.95, sum by (le) (rate(http_server_requests_seconds_bucket{service="aiot-gateway",uri!~"/actuator.*"}[5m])))
+
+      - record: aiot:gateway:latency:p99_5m
+        expr: histogram_quantile(0.99, sum by (le) (rate(http_server_requests_seconds_bucket{service="aiot-gateway",uri!~"/actuator.*"}[5m])))
+
+      - record: aiot:service:http_rps_5m
+        expr: sum by (service) (rate(http_server_requests_seconds_count{uri!~"/actuator.*"}[5m]))
+
+      - record: aiot:service:http_5xx_rps_5m
+        expr: sum by (service) (rate(http_server_requests_seconds_count{status=~"5..",uri!~"/actuator.*"}[5m]))
+
+      - record: aiot:service:http_latency:p95_5m
+        expr: histogram_quantile(0.95, sum by (service, le) (rate(http_server_requests_seconds_bucket{uri!~"/actuator.*"}[5m])))
+
+      - record: aiot:service:http_latency:p99_5m
+        expr: histogram_quantile(0.99, sum by (service, le) (rate(http_server_requests_seconds_bucket{uri!~"/actuator.*"}[5m])))
+
+      - record: aiot:auth:deny_ratio_5m
+        expr: sum(rate(aiot_auth_emqx_deny_total[5m])) / clamp_min(sum(rate(aiot_auth_emqx_attempt_total[5m])), 0.001)
+
+      - record: aiot:auth:webhook_reject_rate_5m
+        expr: sum by (reason) (rate(aiot_auth_webhook_reject_total[5m]))
+
+      - record: aiot:event:consume_rate_5m
+        expr: sum by (service) (rate(aiot_stream_consume_total[5m]))
+
+      - record: aiot:event:consume_success_ratio_5m
+        expr: sum by (service) (rate(aiot_stream_consume_success_total[5m])) / clamp_min(sum by (service) (rate(aiot_stream_consume_total[5m])), 0.001)
+
+      - record: aiot:event:consume_failure_ratio_5m
+        expr: sum by (service) (rate(aiot_stream_consume_failed_total[5m])) / clamp_min(sum by (service) (rate(aiot_stream_consume_total[5m])), 0.001)
+
+      - record: aiot:event:dlq_rate_5m
+        expr: sum by (service) (rate(aiot_stream_dlq_published_total[5m]))
+
+      - record: aiot:event:backlog_total
+        expr: sum(aiot_stream_backlog_length)
+
+      - record: aiot:event:pending_total
+        expr: sum(aiot_stream_pending_total)
+
+      - record: aiot:event:consume_latency:avg_5m
+        expr: sum by (service) (rate(aiot_stream_consume_latency_seconds_sum[5m])) / clamp_min(sum by (service) (rate(aiot_stream_consume_latency_seconds_count[5m])), 0.001)
+
+      - record: aiot:event:consume_latency:max
+        expr: max by (service) (aiot_stream_consume_latency_seconds_max)
+
+      - record: aiot:device:flush_rate_5m
+        expr: sum(rate(aiot_device_status_flush_success_total[5m])) + sum(rate(aiot_device_status_flush_failed_total[5m])) + sum(rate(aiot_device_status_flush_dropped_total[5m]))
+
+      - record: aiot:device:flush_success_ratio_5m
+        expr: sum(rate(aiot_device_status_flush_success_total[5m])) / clamp_min((sum(rate(aiot_device_status_flush_success_total[5m])) + sum(rate(aiot_device_status_flush_failed_total[5m])) + sum(rate(aiot_device_status_flush_dropped_total[5m]))), 0.001)
+
+      - record: aiot:device:flush_latency:avg_5m
+        expr: sum(rate(aiot_device_status_flush_duration_seconds_sum[5m])) / clamp_min(sum(rate(aiot_device_status_flush_duration_seconds_count[5m])), 0.001)
+
+      - record: aiot:device:flush_latency:max
+        expr: max(aiot_device_status_flush_duration_seconds_max)
+
+      - record: aiot:runtime:jvm_heap_used_bytes
+        expr: sum by (service) (jvm_memory_used_bytes{area="heap"})
+
+      - record: aiot:runtime:process_cpu_usage
+        expr: max by (service) (process_cpu_usage)
+
+      - record: aiot:runtime:up_targets
+        expr: sum(up)
