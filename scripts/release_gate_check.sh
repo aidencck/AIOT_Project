@@ -15,14 +15,16 @@ usage() {
       --local          本地镜像模式（跳过 registry pull，改用本地镜像 tag 校验）
       --skip-baseline  跳过发布前基线健康检查
       --baseline-timeout 基线健康检查超时（秒，默认: 60）
+      --env            发布环境门禁强度: prod|staging|dev（默认: dev）
   -h, --help           显示帮助
 
 说明:
   发布门禁检查包含：
   1) compose 文件与服务存在性检查
   2) 服务必须配置 healthcheck
-  3) 目标镜像可拉取
-  4) 可选：当前运行实例基线健康检查
+  3) 服务必须配置 deploy.resources.limits（内存/CPU，--env prod 阻断，staging/dev 告警）
+  4) 目标镜像可拉取
+  5) 可选：当前运行实例基线健康检查
 EOF
 }
 
@@ -35,6 +37,7 @@ COMPOSE_FILE="docker-compose.yml"
 LOCAL="0"
 SKIP_BASELINE="0"
 BASELINE_TIMEOUT="60"
+ENV="dev"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -62,6 +65,10 @@ while [[ $# -gt 0 ]]; do
       BASELINE_TIMEOUT="${2:-}"
       shift 2
       ;;
+    --env)
+      ENV="${2:-}"
+      shift 2
+      ;;
     -h|--help)
       usage
       exit 0
@@ -84,6 +91,14 @@ if ! [[ "${BASELINE_TIMEOUT}" =~ ^[0-9]+$ ]]; then
   echo "ERROR: --baseline-timeout 需为正整数秒"
   exit 1
 fi
+
+case "${ENV}" in
+  prod|staging|dev) ;;
+  *)
+    echo "ERROR: --env 仅支持 prod|staging|dev（当前: ${ENV}）"
+    exit 1
+    ;;
+esac
 
 if ! command -v docker >/dev/null 2>&1; then
   echo "ERROR: 未检测到 docker"
@@ -128,6 +143,25 @@ if ! "${COMPOSE_CMD[@]}" "${COMPOSE_FILES[@]}" config --format json 2>/dev/null 
   python3 -c 'import json,sys; d=json.load(sys.stdin); s=d["services"].get(sys.argv[1]); sys.exit(0 if s and "healthcheck" in s else 1)' "${SERVICE}"; then
   echo "ERROR: ${SERVICE} 缺少 healthcheck 配置，禁止发布"
   exit 1
+fi
+
+# 用 JSON 校验服务是否配置 deploy.resources.limits（内存/CPU），分层门禁：
+# prod 缺失阻断发布，staging/dev 缺失仅告警
+limits_ok=1
+if ! "${COMPOSE_CMD[@]}" "${COMPOSE_FILES[@]}" config --format json 2>/dev/null | \
+  python3 -c 'import json,sys; d=json.load(sys.stdin); s=d["services"].get(sys.argv[1]); limits=((s or {}).get("deploy") or {}).get("resources", {}).get("limits"); sys.exit(0 if limits and "memory" in limits and "cpus" in limits else 1)' "${SERVICE}"; then
+  limits_ok=0
+fi
+if [[ "${limits_ok}" == "0" ]]; then
+  case "${ENV}" in
+    prod)
+      echo "ERROR: ${SERVICE} 缺少 deploy.resources.limits（内存/CPU）配置，禁止发布"
+      exit 1
+      ;;
+    staging|dev)
+      echo "[Gate] WARN: ${SERVICE} 缺少 deploy.resources.limits（内存/CPU）配置（env=${ENV}，不阻断）"
+      ;;
+  esac
 fi
 
 if [[ "${LOCAL}" == "1" ]]; then

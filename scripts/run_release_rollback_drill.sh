@@ -17,6 +17,7 @@ usage() {
   -m, --fault-mode         故障注入模式（stop-container | kill-container，默认: stop-container）
       --health-timeout     健康检查超时秒数（默认: 180）
       --verify-timeout     注入后故障验证超时秒数（默认: 30）
+      --skip-load-verify   跳过运行负载与正确性验证（默认执行）
       --trace-id           演练 Trace ID（默认自动生成）
       --operator           执行人（默认: $USER）
   -h, --help               显示帮助
@@ -38,6 +39,10 @@ LOCAL="0"
 FAULT_MODE="stop-container"
 HEALTH_TIMEOUT="180"
 VERIFY_TIMEOUT="30"
+SKIP_LOAD_VERIFY="0"
+LOAD_VERIFY_RESULT="pending"
+LOAD_BASELINE_SUMMARY=""
+LOAD_RECOVERY_SUMMARY=""
 TRACE_ID=""
 OPERATOR="${USER:-unknown}"
 
@@ -72,6 +77,69 @@ emit_event() {
   fi
 }
 
+# 运行负载 + 正确性验证：默认硬门禁，可观测栈不可用则软降级为 skipped（不阻断回滚流程）。
+# 返回码约定：0=通过；2=可观测栈不可用已跳过；其它=失败（触发 set -e 终止演练）。
+run_load_verify() {
+  local phase="$1"
+  if [[ "${SKIP_LOAD_VERIFY}" == "1" ]]; then
+    LOAD_VERIFY_RESULT="skipped"
+    emit_event "WARN" "load_verify" "skipped" "已跳过运行负载与正确性验证（--skip-load-verify）"
+    return 0
+  fi
+  local label
+  if [[ "${phase}" == "baseline" ]]; then
+    label="演练前基线"
+  else
+    label="回滚恢复后"
+  fi
+  emit_event "INFO" "load_verify" "running" "${label}：验证系统运行负载与正确性"
+  local summary_file="${DRILL_DIR}/load-verify-${TRACE_ID}-${phase}.json"
+  local rc
+  set +e
+  "${ROOT_DIR}/scripts/verify_drill_load_correctness.sh" \
+    --service "${SERVICE}" \
+    --phase "${phase}" \
+    --trace-id "${TRACE_ID}" \
+    --operator "${OPERATOR}" \
+    --summary-file "${summary_file}"
+  rc=$?
+  set -e
+  case "${rc}" in
+    0)
+      LOAD_VERIFY_RESULT="passed"
+      if [[ "${phase}" == "baseline" ]]; then LOAD_BASELINE_SUMMARY="${summary_file}"; else LOAD_RECOVERY_SUMMARY="${summary_file}"; fi
+      emit_event "INFO" "load_verify" "success" "${label}运行负载与正确性验证通过"
+      ;;
+    2) LOAD_VERIFY_RESULT="degraded"; emit_event "WARN" "load_verify" "skipped" "${label}可观测栈不可用，软降级跳过负载与正确性验证" ;;
+    *) LOAD_VERIFY_RESULT="failed"; emit_event "ERROR" "load_verify" "failed" "${label}运行负载与正确性验证失败（rc=${rc}）"; return "${rc}" ;;
+  esac
+  return 0
+}
+
+# 对比 baseline 与 recovery 两段负载指标，输出 JSON（无可用摘要时输出 null）。
+build_load_compare() {
+  if [[ -z "${LOAD_BASELINE_SUMMARY:-}" || -z "${LOAD_RECOVERY_SUMMARY:-}" ]]; then
+    echo "null"
+    return 0
+  fi
+  python3 - "${LOAD_BASELINE_SUMMARY}" "${LOAD_RECOVERY_SUMMARY}" <<'PYEOF'
+import json, sys
+b = json.load(open(sys.argv[1]))
+r = json.load(open(sys.argv[2]))
+keys = ["throughput_rps", "latency_p50_sec", "latency_p95_sec", "latency_p99_sec", "success_ratio", "http_5xx"]
+def num(v):
+    return round(v, 6) if isinstance(v, (int, float)) else v
+def metric(s):
+    return {k: num(s.get(k)) for k in keys}
+compare = {
+    "baseline": metric(b),
+    "recovery": metric(r),
+    "delta": {k: num((r.get(k) or 0) - (b.get(k) or 0)) for k in keys},
+}
+print(json.dumps(compare, ensure_ascii=False))
+PYEOF
+}
+
 finalize_report() {
   local rc="$?"
   local end_epoch
@@ -83,8 +151,11 @@ finalize_report() {
   local finish_ts
   finish_ts="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
+  local load_compare
+  load_compare="$(build_load_compare)"
+
   local summary
-  summary="{\"ts\":\"${finish_ts}\",\"trace_id\":\"$(json_escape "${TRACE_ID}")\",\"service\":\"$(json_escape "${SERVICE}")\",\"operator\":\"$(json_escape "${OPERATOR}")\",\"release_tag\":\"$(json_escape "${RELEASE_TAG}")\",\"rollback_tag\":\"$(json_escape "${ROLLBACK_TAG}")\",\"fault_mode\":\"$(json_escape "${FAULT_MODE}")\",\"result\":\"${DRILL_RESULT}\",\"duration_s\":${duration_s},\"timeline_file\":\"$(json_escape "${TIMELINE_FILE}")\"}"
+  summary="{\"ts\":\"${finish_ts}\",\"trace_id\":\"$(json_escape "${TRACE_ID}")\",\"service\":\"$(json_escape "${SERVICE}")\",\"operator\":\"$(json_escape "${OPERATOR}")\",\"release_tag\":\"$(json_escape "${RELEASE_TAG}")\",\"rollback_tag\":\"$(json_escape "${ROLLBACK_TAG}")\",\"fault_mode\":\"$(json_escape "${FAULT_MODE}")\",\"load_verify\":\"$(json_escape "${LOAD_VERIFY_RESULT}")\",\"load_compare\":${load_compare},\"result\":\"${DRILL_RESULT}\",\"duration_s\":${duration_s},\"timeline_file\":\"$(json_escape "${TIMELINE_FILE}")\"}"
   if [[ -n "${REPORT_FILE}" ]]; then
     echo "${summary}" > "${REPORT_FILE}"
   fi
@@ -132,6 +203,10 @@ while [[ $# -gt 0 ]]; do
     --verify-timeout)
       VERIFY_TIMEOUT="${2:-}"
       shift 2
+      ;;
+    --skip-load-verify)
+      SKIP_LOAD_VERIFY="1"
+      shift
       ;;
     --trace-id)
       TRACE_ID="${2:-}"
@@ -196,6 +271,8 @@ emit_event "INFO" "deploy" "running" "执行演练版本发布并验证健康"
   "${LOCAL_ARGS[@]}"
 emit_event "INFO" "deploy" "success" "演练版本发布成功"
 
+run_load_verify baseline
+
 emit_event "WARN" "fault_injection" "running" "开始执行故障注入"
 "${ROOT_DIR}/scripts/inject_fault.sh" \
   --service "${SERVICE}" \
@@ -237,6 +314,8 @@ emit_event "INFO" "recovery_verify" "running" "验证回滚后恢复状态"
   --compose-file "${COMPOSE_FILE}" \
   --timeout "${HEALTH_TIMEOUT}"
 emit_event "INFO" "recovery_verify" "success" "回滚后健康检查通过"
+
+run_load_verify recovery
 
 DRILL_RESULT="success"
 echo "发布回滚一键演练通过: service=${SERVICE}, trace_id=${TRACE_ID}"

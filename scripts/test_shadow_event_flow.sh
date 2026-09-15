@@ -6,7 +6,7 @@ set -euo pipefail
 
 DEVICE_ID="${DEVICE_ID:-}"
 TOKEN="${TOKEN:-}"
-BASE_URL="${BASE_URL:-http://127.0.0.1:8081}"
+BASE_URL="${BASE_URL:-http://127.0.0.1:8080}"
 
 if [[ -z "${DEVICE_ID}" || -z "${TOKEN}" ]]; then
   echo "DEVICE_ID and TOKEN are required."
@@ -28,14 +28,14 @@ echo
 
 echo "[3/4] Verify delta exists"
 curl -sS -H "Authorization: ${TOKEN}" \
-  "${BASE_URL}/api/v1/devices/${DEVICE_ID}/shadow" | jq '.delta'
+  "${BASE_URL}/api/v1/devices/${DEVICE_ID}/shadow" | jq '.data.delta'
 
 echo "[4/4] Verify optimistic lock conflict (expect HTTP 409)"
 HTTP_CODE=$(curl -sS -o /tmp/shadow_conflict.json -w "%{http_code}" -X POST \
   -H "Authorization: ${TOKEN}" \
   -H "Content-Type: application/json" \
   -d '{"powerSwitch":0}' \
-  "${BASE_URL}/api/v1/devices/${DEVICE_ID}/shadow/desired?expectedVersion=1")
+  "${BASE_URL}/api/v1/devices/${DEVICE_ID}/shadow/desired?expectedVersion=0")
 echo "HTTP_CODE=${HTTP_CODE}"
 cat /tmp/shadow_conflict.json | jq '.'
 

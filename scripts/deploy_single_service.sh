@@ -26,9 +26,12 @@ EOF
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 cd "${ROOT_DIR}"
 
-# 复用共享库的密钥默认值，确保 docker compose up 注入 AIOT_JWT_SECRET 等（否则服务启动失败）
+# 复用共享库的非敏感默认值（AIOT_ENV/IMAGE_TAG/弱密码兜底）；
+# 安全密钥（JWT/内部令牌/EMQX webhook）加载 runtime.env 后 fail-fast 校验，缺失即中断，避免容器以空密钥拉起。
 source "${ROOT_DIR}/scripts/lib/common.sh"
 secret::export_defaults
+secret::load_file "${AIOT_ROOT_DIR}/compose/env/${AIOT_ENV}/runtime.env"
+secret::require_secrets
 
 SERVICE=""
 IMAGE_TAG=""

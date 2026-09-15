@@ -54,7 +54,7 @@ echo "Creating Issues for V1.0 MVP..."
 create_issue "V1.0 MVP 与基础闭环" "核心业务 CRUD 与物模型落地" "落地 aiot-device-service 和 aiot-auth-service，完成 MyBatis-Plus 基础表结构设计（设备、产品、物模型）。"
 create_issue "V1.0 MVP 与基础闭环" "设备鉴权与 EMQX 状态联动" "实现 HMAC_SHA256 鉴权与 EMQX Webhook 上下线联动。"
 create_issue "V1.0 MVP 与基础闭环" "自动化 E2E 测试验证" "Service 层业务逻辑覆盖率达到 70%。利用 Bash 脚本模拟设备 MQTT 接入、心跳、HTTP 下发指令闭环。"
-create_issue "V1.0 MVP 与基础闭环" "中间件与服务一键部署" "产出标准的 docker-compose.yml。实现一键拉起 MySQL, Redis, EMQX (单节点), Nacos 和业务微服务。"
+create_issue "V1.0 MVP 与基础闭环" "中间件与服务一键部署" "产出标准的 docker-compose.yml。实现一键拉起 MySQL, Redis, EMQX (单节点) 和业务微服务。"
 
 echo "=============================="
 echo "Creating Issues for V2.0 高可用..."
