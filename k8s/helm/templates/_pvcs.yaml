@@ -1,0 +1,17 @@
+{{- range $name, $size := dict "mysql" .Values.infra.mysql.storage "redis" .Values.infra.redis.storage "emqx" .Values.infra.emqx.storage "nacos" .Values.infra.nacos.storage "prometheus" .Values.observability.prometheus.storage "grafana" .Values.observability.grafana.storage "loki" .Values.observability.loki.storage "tempo" .Values.observability.tempo.storage "promtail-positions" "1Gi" }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ $name }}-data
+  namespace: {{ $.Values.global.namespace }}
+  labels:
+    app.kubernetes.io/name: {{ $name }}
+    {{- include "aiot.standardLabels" $ | nindent 4 }}
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: {{ $.Values.global.storageClass }}
+  resources:
+    requests:
+      storage: {{ $size }}
+{{- end }}

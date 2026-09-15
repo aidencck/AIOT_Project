@@ -1,0 +1,77 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://aiot.edge/contracts/diagnosis.schema.json",
+  "title": "AiDiagnosisResponse",
+  "description": "端云共享 AI 诊断输出契约，字段对齐 com.aiot.common.dto.ai.AiDiagnosisResponse",
+  "type": "object",
+  "required": [
+    "sceneType",
+    "summary",
+    "rootCauseCategory",
+    "confidence",
+    "evidence",
+    "recommendedActions",
+    "ruleDraftable",
+    "riskLevel"
+  ],
+  "properties": {
+    "diagnosisId": {
+      "type": "string",
+      "description": "诊断记录幂等键（元数据）"
+    },
+    "sceneType": {
+      "type": "string",
+      "description": "诊断场景类型，如 OFFLINE_FLAP / PROVISION_FAILURE / SHADOW_DIFF"
+    },
+    "summary": {
+      "type": "string",
+      "description": "诊断结论摘要"
+    },
+    "rootCauseCategory": {
+      "type": "string",
+      "description": "根因分类"
+    },
+    "confidence": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1,
+      "description": "诊断置信度"
+    },
+    "evidence": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "string"
+      },
+      "description": "证据列表"
+    },
+    "recommendedActions": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "string"
+      },
+      "description": "建议动作列表"
+    },
+    "ruleDraftable": {
+      "type": "boolean",
+      "description": "是否可沉淀为规则草稿"
+    },
+    "riskLevel": {
+      "type": "string",
+      "description": "风险等级"
+    },
+    "modelName": {
+      "type": "string",
+      "description": "模型名称（元数据）"
+    },
+    "promptVersion": {
+      "type": "string",
+      "description": "Prompt 版本（元数据）"
+    },
+    "source": {
+      "type": "string",
+      "description": "来源标识（元数据）"
+    }
+  }
+}

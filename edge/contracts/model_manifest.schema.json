@@ -1,0 +1,56 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://aiot.edge/contracts/model_manifest.schema.json",
+  "title": "ModelManifest",
+  "description": "端侧模型发布清单契约（发布控制字段）",
+  "type": "object",
+  "required": [
+    "modelVersion",
+    "promptVersion",
+    "schemaVersion",
+    "productScope",
+    "firmwareScope",
+    "rolloutPercent",
+    "fallbackVersion"
+  ],
+  "properties": {
+    "modelVersion": {
+      "type": "string",
+      "description": "模型版本"
+    },
+    "promptVersion": {
+      "type": "string",
+      "description": "Prompt 版本"
+    },
+    "schemaVersion": {
+      "type": "string",
+      "description": "输出 JSON Schema 协议版本"
+    },
+    "productScope": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "string"
+      },
+      "description": "灰度覆盖的产品标识范围，* 表示全量"
+    },
+    "firmwareScope": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "string"
+      },
+      "description": "灰度覆盖的固件版本范围，* 表示全量"
+    },
+    "rolloutPercent": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 100,
+      "description": "灰度放量百分比（0-100）"
+    },
+    "fallbackVersion": {
+      "type": "string",
+      "description": "回退模型版本"
+    }
+  }
+}

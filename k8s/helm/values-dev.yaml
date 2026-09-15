@@ -1,0 +1,22 @@
+# dev：本地 minikube / docker-desktop 环境
+global:
+  imageRegistry: ghcr.io/aidencck/aiot-java
+  storageClass: standard   # minikube/docker-desktop 默认 StorageClass
+
+# 敏感信息默认全部为空，强制由外部 Secret 管理或 helm install --set 注入（契约同 values.yaml）。
+# 本地 minikube 快速启动可临时 --set secrets.xxx=... 注入，严禁明文写回本文件并 commit。
+secrets:
+  mysqlRootPassword: ""
+  mysqlPassword: ""
+  redisPassword: ""
+  emqxApiUser: admin
+  emqxApiPassword: ""
+  aiotJwtSecret: ""          # 必须 ≥32 字节（HS256 最低要求），用 openssl rand -hex 32 生成
+  aiotInternalToken: ""
+  aiotEmqxWebhookSecret: ""
+  grafanaAdminUser: admin
+  grafanaAdminPassword: ""
+
+ingress:
+  tls:
+    enabled: false

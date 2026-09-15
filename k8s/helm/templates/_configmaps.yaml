@@ -1,0 +1,29 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: aiot-common-config
+  namespace: {{ .Values.global.namespace }}
+data:
+  TZ: {{ .Values.global.tz | quote }}
+  NACOS_SERVER_ADDR: {{ printf "%s:%s" .Values.endpoints.nacos.host .Values.endpoints.nacos.port | quote }}
+  AIOT_CROSS_SERVICE_TIMEOUT_MS: {{ .Values.common.crossServiceTimeoutMs | quote }}
+  AIOT_CROSS_SERVICE_MAX_RETRIES: {{ .Values.common.crossServiceMaxRetries | quote }}
+  AIOT_CROSS_SERVICE_RETRY_BACKOFF_MS: {{ .Values.common.crossServiceRetryBackoffMs | quote }}
+  AIOT_CROSS_SERVICE_CB_FAILURE_THRESHOLD: {{ .Values.common.crossServiceCbFailureThreshold | quote }}
+  AIOT_CROSS_SERVICE_CB_OPEN_MS: {{ .Values.common.crossServiceCbOpenMs | quote }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: aiot-service-urls
+  namespace: {{ .Values.global.namespace }}
+data:
+  MYSQL_HOST: {{ .Values.endpoints.mysql.host | quote }}
+  MYSQL_PORT: {{ .Values.endpoints.mysql.port | quote }}
+  REDIS_HOST: {{ .Values.endpoints.redis.host | quote }}
+  REDIS_PORT: {{ .Values.endpoints.redis.port | quote }}
+  EMQX_HOST: {{ .Values.endpoints.emqx.host | quote }}
+  AIOT_HOME_SERVICE_URL: lb://aiot-home-service
+  AIOT_DEVICE_SERVICE_URL: lb://aiot-device-service
+  AIOT_RULE_SERVICE_URL: lb://aiot-rule-engine
+  AIOT_DATA_PARSER_BASE_URL: lb://aiot-data-parser

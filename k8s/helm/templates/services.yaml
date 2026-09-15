@@ -1,0 +1,220 @@
+{{- $root := . -}}
+{{- $svcDefs := list
+  (dict "key" "gateway" "name" "gateway" "port" .Values.services.gateway.port "javaOpts" .Values.services.gateway.javaOpts "replicas" .Values.services.gateway.replicas "resources" .Values.services.gateway.resources "hpa" .Values.services.gateway.hpa "needsDb" false "needsRedis" false "needsEmqx" false)
+  (dict "key" "authService" "name" "auth-service" "port" .Values.services.authService.port "javaOpts" .Values.services.authService.javaOpts "replicas" .Values.services.authService.replicas "resources" .Values.services.authService.resources "hpa" .Values.services.authService.hpa "needsDb" true "needsRedis" true "needsEmqx" false "depService" "device-service")
+  (dict "key" "deviceService" "name" "device-service" "port" .Values.services.deviceService.port "javaOpts" .Values.services.deviceService.javaOpts "replicas" .Values.services.deviceService.replicas "resources" .Values.services.deviceService.resources "hpa" .Values.services.deviceService.hpa "needsDb" true "needsRedis" true "needsEmqx" true)
+  (dict "key" "homeService" "name" "home-service" "port" .Values.services.homeService.port "javaOpts" .Values.services.homeService.javaOpts "replicas" .Values.services.homeService.replicas "resources" .Values.services.homeService.resources "hpa" .Values.services.homeService.hpa "needsDb" true "needsRedis" true "needsEmqx" false)
+  (dict "key" "ruleEngine" "name" "rule-engine" "port" .Values.services.ruleEngine.port "javaOpts" .Values.services.ruleEngine.javaOpts "replicas" .Values.services.ruleEngine.replicas "resources" .Values.services.ruleEngine.resources "hpa" .Values.services.ruleEngine.hpa "needsDb" false "needsRedis" true "needsEmqx" false)
+  (dict "key" "shadowService" "name" "shadow-service" "port" .Values.services.shadowService.port "javaOpts" .Values.services.shadowService.javaOpts "replicas" .Values.services.shadowService.replicas "resources" .Values.services.shadowService.resources "hpa" .Values.services.shadowService.hpa "needsDb" false "needsRedis" true "needsEmqx" false "skipDb" true)
+  (dict "key" "mqttAdapter" "name" "mqtt-adapter" "port" .Values.services.mqttAdapter.port "javaOpts" .Values.services.mqttAdapter.javaOpts "replicas" .Values.services.mqttAdapter.replicas "resources" .Values.services.mqttAdapter.resources "hpa" .Values.services.mqttAdapter.hpa "needsDb" false "needsRedis" false "needsEmqx" false "depService" "data-parser" "skipDb" true)
+  (dict "key" "dataParser" "name" "data-parser" "port" .Values.services.dataParser.port "javaOpts" .Values.services.dataParser.javaOpts "replicas" .Values.services.dataParser.replicas "resources" .Values.services.dataParser.resources "hpa" .Values.services.dataParser.hpa "needsDb" false "needsRedis" true "needsEmqx" false "skipDb" true)
+-}}
+{{- range $s := $svcDefs }}
+{{- $svc := get $root.Values.services $s.key }}
+{{- if and $svc $svc.enabled }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $s.name }}
+  namespace: {{ $root.Values.global.namespace }}
+  labels:
+    app: {{ $s.name }}
+    {{- include "aiot.standardLabels" $root | nindent 4 }}
+spec:
+  replicas: {{ $s.replicas }}
+  selector: {matchLabels: {app: {{ $s.name }}}}
+  strategy:
+    type: RollingUpdate
+    rollingUpdate: {maxSurge: 1, maxUnavailable: 0}
+  template:
+    metadata:
+      labels:
+        app: {{ $s.name }}
+        {{- include "aiot.standardLabels" $root | nindent 8 }}
+    spec:
+      {{- include "aiot.podSecurityContext" $root | nindent 6 }}
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app: {{ $s.name }}
+                topologyKey: kubernetes.io/hostname
+      {{- if or $s.needsDb $s.needsRedis $s.depService }}
+      initContainers:
+        - name: wait-deps
+          image: busybox:1.36
+          command:
+            - timeout
+            - "300"
+            - sh
+            - -c
+            - |
+              {{- if $s.needsDb }}
+              until nc -z mysql 3306; do echo "waiting mysql..."; sleep 3; done
+              {{- end }}
+              {{- if $s.needsRedis }}
+              until nc -z redis 6379; do echo "waiting redis..."; sleep 3; done
+              {{- end }}
+              {{- if $s.needsEmqx }}
+              until nc -z emqx 1883; do echo "waiting emqx..."; sleep 3; done
+              {{- end }}
+              {{- if $s.depService }}
+              {{- range $dep := $svcDefs }}
+              {{- if eq $dep.name $s.depService }}
+              until nc -z {{ $s.depService }} {{ $dep.port }}; do echo "waiting {{ $s.depService }}..."; sleep 3; done
+              {{- end }}
+              {{- end }}
+              {{- end }}
+      {{- end }}
+      containers:
+        - name: {{ $s.name }}
+          image: "{{ $root.Values.global.imageRegistry }}/aiot-{{ $s.name }}:{{ $root.Values.global.imageTag }}"
+          imagePullPolicy: {{ $root.Values.global.imagePullPolicy }}
+          ports: [{containerPort: {{ $s.port }}, name: http}]
+          {{- include "aiot.containerSecurityContext" $root | nindent 10 }}
+          env:
+            - name: TZ
+              valueFrom: {configMapKeyRef: {name: aiot-common-config, key: TZ}}
+            - {name: SERVER_PORT, value: {{ $s.port | quote }}}
+            - {name: JAVA_OPTS, value: {{ $s.javaOpts | quote }}}
+            - name: NACOS_SERVER_ADDR
+              valueFrom: {configMapKeyRef: {name: aiot-common-config, key: NACOS_SERVER_ADDR}}
+            {{- if $s.needsDb }}
+            - name: MYSQL_HOST
+              valueFrom: {configMapKeyRef: {name: aiot-service-urls, key: MYSQL_HOST}}
+            - name: MYSQL_PORT
+              valueFrom: {configMapKeyRef: {name: aiot-service-urls, key: MYSQL_PORT}}
+            - {name: MYSQL_USER, value: {{ $root.Values.endpoints.mysql.user | quote }}}
+            - name: MYSQL_PASSWORD
+              valueFrom: {secretKeyRef: {name: aiot-secrets, key: MYSQL_PASSWORD}}
+            - name: MYSQL_PWD
+              valueFrom: {secretKeyRef: {name: aiot-secrets, key: MYSQL_PASSWORD}}
+            - {name: MYSQL_DB, value: {{ ternary $root.Values.endpoints.mysql.homeDb $root.Values.endpoints.mysql.db (eq $s.name "home-service") | quote }}}
+            {{- end }}
+            {{- if or $s.needsRedis (eq $s.name "device-service") (eq $s.name "rule-engine") (eq $s.name "mqtt-adapter") }}
+            - name: REDIS_HOST
+              valueFrom: {configMapKeyRef: {name: aiot-service-urls, key: REDIS_HOST}}
+            - name: REDIS_PORT
+              valueFrom: {configMapKeyRef: {name: aiot-service-urls, key: REDIS_PORT}}
+            - name: REDIS_PASSWORD
+              valueFrom: {secretKeyRef: {name: aiot-secrets, key: REDIS_PASSWORD}}
+            {{- end }}
+            {{- if $s.needsEmqx }}
+            - name: EMQX_HOST
+              valueFrom: {configMapKeyRef: {name: aiot-service-urls, key: EMQX_HOST}}
+            - name: EMQX_API_USER
+              valueFrom: {secretKeyRef: {name: aiot-secrets, key: EMQX_API_USER}}
+            - name: EMQX_API_PASSWORD
+              valueFrom: {secretKeyRef: {name: aiot-secrets, key: EMQX_API_PASSWORD}}
+            {{- end }}
+            - name: AIOT_JWT_SECRET
+              valueFrom: {secretKeyRef: {name: aiot-secrets, key: AIOT_JWT_SECRET}}
+            - name: AIOT_INTERNAL_TOKEN
+              valueFrom: {secretKeyRef: {name: aiot-secrets, key: AIOT_INTERNAL_TOKEN}}
+            {{- if eq $s.name "auth-service" }}
+            - name: AIOT_EMQX_WEBHOOK_SECRET
+              valueFrom: {secretKeyRef: {name: aiot-secrets, key: AIOT_EMQX_WEBHOOK_SECRET}}
+            - name: AIOT_DEVICE_SERVICE_URL
+              value: "lb://aiot-device-service"
+            {{- end }}
+            {{- if eq $s.name "device-service" }}
+            - name: AIOT_HOME_SERVICE_URL
+              valueFrom: {configMapKeyRef: {name: aiot-service-urls, key: AIOT_HOME_SERVICE_URL}}
+            - name: AIOT_RULE_SERVICE_URL
+              valueFrom: {configMapKeyRef: {name: aiot-service-urls, key: AIOT_RULE_SERVICE_URL}}
+            - name: AIOT_DATA_PARSER_BASE_URL
+              valueFrom: {configMapKeyRef: {name: aiot-service-urls, key: AIOT_DATA_PARSER_BASE_URL}}
+            - name: AIOT_CROSS_SERVICE_TIMEOUT_MS
+              valueFrom: {configMapKeyRef: {name: aiot-common-config, key: AIOT_CROSS_SERVICE_TIMEOUT_MS}}
+            - name: AIOT_CROSS_SERVICE_MAX_RETRIES
+              valueFrom: {configMapKeyRef: {name: aiot-common-config, key: AIOT_CROSS_SERVICE_MAX_RETRIES}}
+            - name: AIOT_CROSS_SERVICE_RETRY_BACKOFF_MS
+              valueFrom: {configMapKeyRef: {name: aiot-common-config, key: AIOT_CROSS_SERVICE_RETRY_BACKOFF_MS}}
+            - name: AIOT_CROSS_SERVICE_CB_FAILURE_THRESHOLD
+              valueFrom: {configMapKeyRef: {name: aiot-common-config, key: AIOT_CROSS_SERVICE_CB_FAILURE_THRESHOLD}}
+            - name: AIOT_CROSS_SERVICE_CB_OPEN_MS
+              valueFrom: {configMapKeyRef: {name: aiot-common-config, key: AIOT_CROSS_SERVICE_CB_OPEN_MS}}
+            {{- end }}
+            {{- if eq $s.name "home-service" }}
+            - name: AIOT_DEVICE_SERVICE_URL
+              valueFrom: {configMapKeyRef: {name: aiot-service-urls, key: AIOT_DEVICE_SERVICE_URL}}
+            - name: AIOT_CROSS_SERVICE_TIMEOUT_MS
+              valueFrom: {configMapKeyRef: {name: aiot-common-config, key: AIOT_CROSS_SERVICE_TIMEOUT_MS}}
+            - name: AIOT_CROSS_SERVICE_MAX_RETRIES
+              valueFrom: {configMapKeyRef: {name: aiot-common-config, key: AIOT_CROSS_SERVICE_MAX_RETRIES}}
+            - name: AIOT_CROSS_SERVICE_RETRY_BACKOFF_MS
+              valueFrom: {configMapKeyRef: {name: aiot-common-config, key: AIOT_CROSS_SERVICE_RETRY_BACKOFF_MS}}
+            - name: AIOT_CROSS_SERVICE_CB_FAILURE_THRESHOLD
+              valueFrom: {configMapKeyRef: {name: aiot-common-config, key: AIOT_CROSS_SERVICE_CB_FAILURE_THRESHOLD}}
+            - name: AIOT_CROSS_SERVICE_CB_OPEN_MS
+              valueFrom: {configMapKeyRef: {name: aiot-common-config, key: AIOT_CROSS_SERVICE_CB_OPEN_MS}}
+            {{- end }}
+            {{- if or (eq $s.name "rule-engine") (eq $s.name "mqtt-adapter") }}
+            - name: AIOT_DATA_PARSER_BASE_URL
+              valueFrom: {configMapKeyRef: {name: aiot-service-urls, key: AIOT_DATA_PARSER_BASE_URL}}
+            {{- end }}
+            {{- if eq $s.name "rule-engine" }}
+            - name: AIOT_DEVICE_SERVICE_URL
+              valueFrom: {configMapKeyRef: {name: aiot-service-urls, key: AIOT_DEVICE_SERVICE_URL}}
+            {{- end }}
+            {{- if $s.skipDb }}
+            - {name: SPRING_AUTOCONFIGURE_EXCLUDE, value: "org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration,org.mybatis.spring.boot.autoconfigure.MybatisAutoConfiguration"}
+            {{- end }}
+          resources:
+            requests: {{ toYaml $s.resources.requests | nindent 14 }}
+            limits: {{ toYaml $s.resources.limits | nindent 14 }}
+          readinessProbe:
+            httpGet: {path: /actuator/health/readiness, port: {{ $s.port }}}
+            initialDelaySeconds: 40
+            periodSeconds: 30
+            timeoutSeconds: 10
+          livenessProbe:
+            httpGet: {path: /actuator/health/liveness, port: {{ $s.port }}}
+            initialDelaySeconds: 60
+            periodSeconds: 30
+            timeoutSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $s.name }}
+  namespace: {{ $root.Values.global.namespace }}
+  labels: {app: {{ $s.name }}}
+spec:
+  type: ClusterIP
+  ports: [{port: {{ $s.port }}, targetPort: {{ $s.port }}, protocol: TCP, name: http}]
+  selector: {app: {{ $s.name }}}
+{{- if and $svc.hpa $svc.hpa.enabled }}
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: {{ $s.name }}-hpa
+  namespace: {{ $root.Values.global.namespace }}
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: {{ $s.name }}
+  minReplicas: {{ $svc.hpa.minReplicas }}
+  maxReplicas: {{ $svc.hpa.maxReplicas }}
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: {{ $svc.hpa.cpuUtilization }}
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: 80
+{{- end }}
+{{- end }}
+{{- end }}
