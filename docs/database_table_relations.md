@@ -2,8 +2,8 @@
 
 本文档基于以下建表脚本整理当前项目数据库表之间的逻辑关联关系：
 
-- `aiot-home-service/src/main/resources/schema.sql`
-- `aiot-device-service/src/main/resources/schema.sql`
+- `aiot-db-migrator/src/main/resources/db/migration/aiot_home`
+- `aiot-db-migrator/src/main/resources/db/migration/aiot_cloud`
 
 说明：当前 DDL 主要使用逻辑外键（字段关联），未显式声明 `FOREIGN KEY` 约束。
 

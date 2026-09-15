@@ -289,8 +289,8 @@ Note over H: "缺口: 无 DLQ 与 pending reclaim"
 - `README.md`
 - `docs/wiki/current-architecture.md`
 - `docs/database_table_relations.md`
-- `aiot-device-service/src/main/resources/schema.sql`
-- `aiot-home-service/src/main/resources/schema.sql`
+- `aiot-db-migrator/src/main/resources/db/migration/aiot_cloud`
+- `aiot-db-migrator/src/main/resources/db/migration/aiot_home`
 - `aiot-auth-service/src/main/java/.../AuthServiceImpl.java`
 - `aiot-device-service/src/main/java/.../DeviceStatusStreamSubscriber.java`
 - `aiot-rule-engine/src/main/java/.../DeviceEventSubscriber.java`

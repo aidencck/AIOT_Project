@@ -3,6 +3,8 @@
 ## 1. 入口导航
 - 单服务回滚手册：`/Users/aiden/Projects/AIOT-java/docs/runbooks/single-service-rollback.md`
 - 发布演练模板：`/Users/aiden/Projects/AIOT-java/docs/runbooks/release-drill-template.md`
+- AI 持久化迁移手册：`/Users/aiden/Projects/AIOT-java/docs/runbooks/ai-persistence-migration.md`
+- AI 持久化灰度切换清单：`/Users/aiden/Projects/AIOT-java/docs/runbooks/ai-persistence-rollout-checklist.md`
 - 一键演练脚本：`/Users/aiden/Projects/AIOT-java/scripts/run_release_rollback_drill.sh`
 - 故障注入脚本：`/Users/aiden/Projects/AIOT-java/scripts/inject_fault.sh`
 - 回滚脚本（含结构化留痕）：`/Users/aiden/Projects/AIOT-java/scripts/rollback_single_service.sh`

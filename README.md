@@ -83,6 +83,7 @@ C --> D["AI-native：规则智能+数据智能"]:::target
 - `aiot-device-service`：产品管理、设备管理、设备影子、配网令牌。
 - `aiot-home-service`：用户注册登录、家庭与房间管理、家庭成员角色校验。
 - `aiot-common`：统一响应、异常、常量和公共工具。
+- `aiot-admin-web`：独立后台前端模块，统一消费 `admin-console` 聚合接口。
 
 ## 技术栈
 
@@ -124,6 +125,25 @@ mvn clean install -DskipTests
 ```
 
 3. 按需在 IDE 启动 `*Application.java`（例如设备/家庭服务）。
+
+### 方式 C：后台前端独立联调
+
+1. 启动后台最小联调栈：
+
+```bash
+./aiotctl admin up
+```
+
+2. 启动独立后台前端：
+
+```bash
+./scripts/start_admin_web.sh
+```
+
+3. 访问：
+
+- `http://127.0.0.1:5173`
+- 架构说明：[`docs/architecture/AIOT_ADMIN_WEB_LANDING.md`](docs/architecture/AIOT_ADMIN_WEB_LANDING.md)
 
 ## API 文档
 

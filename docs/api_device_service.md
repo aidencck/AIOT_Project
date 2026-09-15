@@ -65,9 +65,13 @@
   {
     "productKey": "PK_XXX",
     "deviceName": "Sensor1",
+    "globalDeviceId": "GDID_001",
+    "deviceSn": "SN_001",
+    "authIdentity": "AUTH_001",
     "provisionToken": "3d5f..."
   }
   ```
+- **说明**: `globalDeviceId`、`deviceSn`、`authIdentity` 为外部兼容字段，均为可选；未传时系统会将 `globalDeviceId` 回退为 `deviceId`，`deviceSn` 保持为空，`authIdentity` 按 `authIdentity > deviceSn > globalDeviceId > deviceId` 规则补齐。
 - **Response**:
   ```json
   {
@@ -75,6 +79,9 @@
     "message": "操作成功",
     "data": {
       "deviceId": "160...",
+      "globalDeviceId": "GDID_001",
+      "deviceSn": "SN_001",
+      "authIdentity": "AUTH_001",
       "deviceSecret": "8c4...",
       "mqttHost": "mqtt.aiot.com",
       "mqttPort": 1883
@@ -94,11 +101,30 @@
   {
     "productKey": "PK_XXX",
     "deviceName": "MySensor",
+    "globalDeviceId": "GDID_001",
+    "deviceSn": "SN_001",
+    "authIdentity": "AUTH_001",
     "homeId": "home_123",
     "gatewayId": "gw_456" 
   }
   ```
   *(注：若 `nodeType` 为 3，则 `gatewayId` 必填，且后台会校验父设备必须是网关类型)*
+- **Response 关键字段**:
+  ```json
+  {
+    "code": 200,
+    "message": "操作成功",
+    "data": {
+      "id": "160...",
+      "deviceId": "160...",
+      "globalDeviceId": "GDID_001",
+      "deviceSn": "SN_001",
+      "authIdentity": "AUTH_001",
+      "deviceSecret": "8c4..."
+    }
+  }
+  ```
+- **说明**: 为兼容历史调用，`id` 字段继续保留；新增 `deviceId/globalDeviceId/deviceSn/authIdentity` 供外部系统逐步迁移使用。
 
 ### 3.2 删除设备
 - **URL**: `/api/v1/devices/{deviceId}`

@@ -30,6 +30,7 @@
 2. **发布阶段**
    - 按标准流程发布到演练环境（可金丝雀）。
    - 记录发布时间、版本号、实例变化。
+   - 演练前基线：验证系统运行负载（吞吐/延迟）与正确性（数据链路一致）——对应 `scripts/verify_drill_load_correctness.sh --phase baseline`。
 3. **故障注入阶段**
    - 按选定触发条件注入异常并观察告警触发。
    - 记录告警首次触发时间。
@@ -49,6 +50,7 @@
    - 记录回滚开始与完成时间。
 5. **验证阶段**
    - 执行健康检查与业务冒烟。
+   - 回滚恢复后：验证系统运行负载与正确性恢复到基线区间——对应 `scripts/verify_drill_load_correctness.sh --phase recovery`。
    - 对比演练前后 SLI/SLO 指标。
 6. **收尾阶段**
    - 恢复常规流量策略。
@@ -61,6 +63,10 @@
   --tag DRILL_RELEASE_TAG \
   --fault-mode stop-container \
   --health-timeout 180
+# 默认执行「发布前基线 + 回滚恢复后」两段运行负载与正确性验证；
+# 可观测栈（Prometheus/Loki/Tempo）不可用时自动软降级跳过，可用 --skip-load-verify 显式跳过。
+# 默认冒烟规模：50 用户 × 2 设备 / 并发 50（可经 verify_drill_load_correctness.sh --users/--load-concurrency 调整）；
+# 报告 JSON 含 load_verify 结果与 load_compare（baseline/recovery/delta）指标对比。
 ```
 
 ## 4. 验证清单
@@ -68,6 +74,8 @@
 - [ ] 回滚在目标时长内完成（目标：≤15 分钟）。
 - [ ] 服务健康探针恢复正常。
 - [ ] 核心业务链路验证通过。
+- [ ] 运行负载验证通过（吞吐 rps、延迟 p50/p95/p99 达标）。
+- [ ] 正确性验证通过（设备状态落库、规则/影子消费、可观测链路数据一致）。
 - [ ] 指标恢复到基线区间（错误率、延迟、吞吐）。
 - [ ] 关键日志与监控证据已归档。
 - [ ] 演练问题单与改进项已创建并指派 owner。
