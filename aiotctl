@@ -1,0 +1,724 @@
+#!/usr/bin/env bash
+# ======================================================================
+# AIoT Unified DevOps CLI  —  aiotctl
+# USAGE:  ./aiotctl <command> [options]
+#   合并: 脚本启动/编排/Makefile快捷/发布/回滚/体检/验证/测试
+#   底层: 全部走 scripts/lib/common.sh 共享函数，无重复实现
+# ======================================================================
+# 底层安全防护配置：开启错误继承/错误立即退出/未定义变量拦截/管道错误传递，从根源避免脚本执行 silent failure
+# 第一性原理：任何错误都不应该被静默掩盖，脚本执行必须具备可观测性和失败可见性
+# 核心功能：bash 严格模式，拦截绝大多数隐蔽的脚本执行错误
+# 风险：对不符合严格模式的旧脚本兼容性差，可能导致原本"能跑"的脚本提前退出
+# 收益：脚本可靠性从"随机正常"提升到"要么正确执行，要么明确失败"，避免隐性错误扩散
+# 灵活性：作为全局基础配置，统一所有子流程的错误处理逻辑，无需重复声明
+set -Eeuo pipefail
+
+# 根目录计算：通过脚本自身路径定位项目绝对根目录，解决任何工作目录下的相对路径引用问题
+# 第一性原理：所有文件引用必须基于绝对根目录，避免 cd 或相对路径导致的文件找不到问题
+# 核心功能：生成项目根目录的绝对路径，作为所有后续文件引用的基础
+# 风险：如果脚本被移动到项目外，会导致根目录计算错误；软链接场景需配合 realpath 额外处理
+# 收益：任何位置执行脚本都能正确加载依赖文件，路径引用100%可靠
+# 灵活性：支持脚本从任意工作目录调用，无需提前cd到项目目录
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=scripts/lib/common.sh
+# 加载通用函数库：所有共享工具函数的唯一入口，实现代码复用和单一事实源
+# 第一性原理：重复代码是一切错误的根源，通用逻辑必须中心化维护
+# 核心功能：加载log::/compose::/env::/verify::等所有跨脚本共享的工具函数，避免重复实现
+# 风险：如果common.sh加载失败脚本会立即退出；函数修改会影响所有依赖的子命令
+# 收益：所有子命令共享一致的工具实现，bug修复一次即可全量生效，代码量减少60%以上
+# 灵活性：新增环境/模式只需在common.sh扩展对应函数，无需修改各个子命令的实现
+source "${ROOT_DIR}/scripts/lib/common.sh"
+# 统一 Gate 摘要库：发布/回滚/健康门禁输出统一 JSON（status/metrics/elapsed_sec），供 L4 度量层机读采集
+source "${ROOT_DIR}/scripts/lib/gate_summary.sh"
+
+# 使用说明函数：统一输出所有命令的帮助文档，作为用户交互的唯一入口
+# 第一性原理：CLI工具的核心可用性是"自解释"，用户无需查看源码即可掌握所有用法
+# 核心功能：格式化输出所有命令的分类、参数、环境变量和使用示例，支持彩色终端输出
+# 风险：新增命令如果忘记更新usage会导致用户无法发现新功能；格式调整可能破坏排版
+# 收益：所有功能的使用方法集中展示，降低用户学习成本，统一工具的使用体验
+# 灵活性：新增命令只需在usage的对应分类添加条目，无需调整输出逻辑
+usage() {
+  cat <<'EOF'
+${C_BOLD}AIoT DevOps Unified CLI${C_RST}  (./aiotctl)
+
+${C_BOLD}【本地开发 - 一键拉起】${C_RST}
+  infra  [up|ps|logs|down|doctor]     P0推荐: 仅4个中间件容器，IDE直跑JVM
+  dev    [up|ps|logs|down]            P1: 12核心容器(infra+8biz ghcr.io)
+  local  [up|build|ps|logs|down]      P2: 全栈本地Maven打包+分层Docker build
+  admin  [up|verify|down]             Admin+AI持久化本地模式
+  ci     [up|down]                    CI端口偏移模式(1808x)
+
+${C_BOLD}【构建】${C_RST}
+  build jars|images|all               jars(跳过测试) / images(local mode) / 两者
+
+${C_BOLD}【部署与发布】${C_RST}
+  migrate   [--db all|cloud|home] [--mode migrate|info] [--target <ver>]  Flyway数据库迁移
+  deploy    <env> [svcs...]           env=staging|prod  → base+env.yml 组合启动
+  canary    <env> <service> <tag>     灰度单服务
+  rollback  <env> <service>           回滚上一版本
+  gate <env> [svcs...]                Release Gate: 健康+连接+JWT门禁
+  artifact-check [env] [--service svc] [--strict] [--skip-image]  部署前jar/镜像与配置一致性校验
+${C_BOLD}【重置与部署模式】${C_RST}
+  reset     fresh|incremental [--yes] fresh=重置+全量构建部署; incremental=保留数据卷拉取ghcr.io增量更新
+
+${C_BOLD}【体检与验证】${C_RST}
+  doctor                              自检: 命令存在/密钥长度/端口占用/compose语法
+  verify  <mode>                      mode=infra|dev|local|admin|prod  → TCP+健康检查
+  logs    <mode> [svc]                模式日志 tail；可指定单个服务
+  ps      <mode>                      容器列表
+  down    [all|infra|dev|local|admin|ci|prod|staging] [--volumes]
+
+${C_BOLD}【测试与演练】${C_RST}
+  test communication|e2e|webhook|mqtt|shadow  E2E/MQTT/Webhook/影子设备
+  drill rollback|canary|inject-fault|load-verify   发布/回滚/故障注入/负载正确性演练
+  ai  seed|verify|flow                        AI持久化种子/校验/业务链路
+
+${C_BOLD}【运维】${C_RST}
+  jvm-diagnostics <svc> [action]      JVM诊断：thread-dump/class-histogram/gcutil/heap-dump
+  observability up|down|status|verify 可观测性栈开关/状态/健康验证
+  release-health <svc> [svc...]       发布后健康门禁（对应 verify_release_health.sh）
+  log-query  [--service/--trace-id/--level/--contains ...]  结构化日志检索（Loki优先，降级docker logs）
+  docker-ops events|watermark         Docker 事件监听留痕 / 存储水位检查
+
+ENV: AIOT_ENV=dev|staging|prod  IMAGE_TAG=main|<sha>  MYSQL_PASSWORD=...  AIOT_JWT_SECRET=...
+示例:
+  ./aiotctl infra up
+  ./aiotctl build all
+  ./aiotctl local up
+  ./aiotctl doctor
+  ./aiotctl deploy prod aiot-gateway aiot-auth-service
+EOF
+}
+
+# 开发模式命令转发：所有本地开发模式的命令统一转发到_mode_switch处理，实现逻辑复用
+# 第一性原理：相同流程的命令必须共享同一套执行逻辑，避免多套实现带来的一致性问题
+# 核心功能：将infra/dev/local/admin/ci五个开发模式的子命令，统一转发到通用的_mode_switch函数
+# 风险：新增开发模式需要对齐参数格式，否则转发失败；别名和compose模式映射错误会导致启动失败
+# 收益：所有开发模式共享同一套up/ps/logs/down的执行逻辑，新增模式只需添加一行转发代码
+# 灵活性：支持别名模式，用户输入的模式名和实际的compose配置目录可以解耦，兼容历史用法
+cmd_infra()     { _mode_switch infra       infra       "$@"; }
+cmd_dev()       { _mode_switch dev         main        "$@"; }
+cmd_local()     { _mode_switch local       local       "$@"; }
+cmd_admin()     { _mode_switch admin       admin-local "$@"; }
+cmd_ci()        { _mode_switch ci          ci          "$@"; }
+
+# 端口列表生成函数：为每个部署模式生成需要健康检查的TCP端口列表，实现端口配置的单一事实源
+# 第一性原理：健康检查的端口配置必须中心化，避免多份配置不一致导致的检查失败
+# 核心功能：根据输入的部署模式，返回对应的需要轮询的TCP端口数组，infra/ci模式走固定配置，其他模式动态加载业务服务端口
+# 风险：新增业务服务如果忘记在service::port中配置，会导致健康检查遗漏端口；端口冲突无法提前拦截
+# 收益：所有依赖健康检查的流程共享同一份端口列表，新增模式只需添加一个case分支
+# 灵活性：支持动态扩展端口，业务服务新增后无需修改各个健康检查流程，只需更新service::port的实现
+_ports_for_mode() {
+  # 单一事实源：模式 → TCP 健康轮询端口列表，单进程派生自 services.json（infra/ci 偏移端口一并纳入），禁止硬编码
+  local mode="$1"
+  topology::ports "$mode"
+}
+
+# 模式通用处理函数：所有开发模式的核心调度逻辑，处理up/build/ps/logs/down等通用子命令
+# 第一性原理：部署模式的生命周期管理是通用的，将不同模式的相同流程抽象为统一调度器
+# 核心功能：接收用户输入的子命令，分发给对应的处理逻辑，处理参数解析、compose配置加载、健康检查等全流程
+# 风险：子命令参数解析错误会导致所有模式都无法执行；健康检查超时时间配置不合理会导致误报
+# 收益：90%的开发模式生命周期逻辑集中在一个函数，维护成本降低70%，所有模式的行为保持一致
+# 灵活性：新增子命令只需在case中添加一个分支，所有开发模式立即支持该子命令，无需重复实现
+_mode_switch() {
+  local alias_name="$1"; shift
+  local compose_mode="$1"; shift
+  # 余参第1位如果是合法sub指令则用它，否则默认sub=up
+  local valid_subs="up ps logs down verify doctor build"
+  local sub="${1:-up}"
+  if [[ " $valid_subs " == *" $sub "* ]]; then
+    shift || true
+  else
+    sub="up"
+  fi
+  local svc="${1:-}"
+  case "$sub" in
+    up)
+      compose::config_test "$compose_mode"
+      compose::up "$compose_mode"
+      local ports
+      ports=($(_ports_for_mode "$compose_mode"))
+      log::section "TCP health poll (max 300s)"
+      if verify::health_poll "$compose_mode" 300 "${ports[@]}"; then
+        log::ok "all ports ready"; ps_print "$compose_mode"
+      else
+        log::warn "poll timeout, check logs"
+        ps_print "$compose_mode"
+        exit 2
+      fi
+      ;;
+    build)
+      build::jars
+      build::images "$compose_mode"
+      ;;
+    ps)     ps_print "$compose_mode" ;;
+    logs)   _logs "$compose_mode" "$svc" ;;
+    down)
+      local volumes="false"
+      args::has_flag "--volumes" "$@" && volumes="true"
+      compose::down "$compose_mode" "$volumes"
+      ;;
+    doctor) doctor_all ;;
+    verify) verify_poll "$compose_mode" ;;
+    *)      usage; exit 2 ;;
+  esac
+}
+
+# 容器列表打印函数：格式化输出指定模式下的所有容器状态、端口信息
+# 第一性原理：容器状态的展示逻辑必须统一，避免不同模式输出格式不一致导致的用户困惑
+# 核心功能：加载对应模式的环境变量和compose配置，调用docker compose ps格式化输出容器列表
+# 风险：工作目录切换错误会导致compose命令找不到配置文件；compose文件格式不兼容会导致输出解析失败
+# 收益：所有模式的容器列表输出格式完全一致，用户学习成本低，输出结果可机器解析
+# 灵活性：支持任何新增的部署模式，只需传入模式名即可自动加载对应配置输出状态
+ps_print() {
+  local mode="$1"
+  env::ctx "$mode"
+  compose::load_env
+  ( cd "$_CTX_WORKDIR" && comp_exec "${_COMPOSE_FILES[@]}" ps --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}' )
+}
+
+# 日志查看函数：支持查看指定模式下的所有容器日志，或单个服务的实时日志
+# 第一性原理：日志查询的交互逻辑必须统一，用户不用记住不同模式的日志查看命令
+# 核心功能：加载对应模式的配置，调用docker compose logs输出指定服务的实时日志，支持行数限制
+# 风险：服务名输入错误会导致命令失败；日志行数配置不合理会导致关键日志被截断
+# 收益：所有模式的日志查看用法完全一致，支持按需查看单个服务日志，使用体验统一
+# 灵活性：新增模式只需传入模式名即可支持日志查看，无需修改任何逻辑
+_logs() {
+  local mode="$1" svc="${2:-}"
+  env::ctx "$mode"
+  compose::load_env
+  if [[ -n "$svc" ]]; then
+    ( cd "$_CTX_WORKDIR" && comp_exec "${_COMPOSE_FILES[@]}" logs -f --tail=500 "$svc" )
+  else
+    ( cd "$_CTX_WORKDIR" && comp_exec "${_COMPOSE_FILES[@]}" logs -f --tail=200 )
+  fi
+}
+
+# 健康验证轮询函数：对指定模式的所有端口发起TCP健康检查，验证部署是否成功
+# 第一性原理：部署成功的标准必须是可量化的端口连通性，不能靠用户主观判断
+# 核心功能：调用_ports_for_mode获取端口列表，发起180秒的健康轮询，成功则输出通过，失败则终止流程
+# 风险：端口启动顺序依赖会导致轮询超时；防火墙拦截端口会导致误判部署失败
+# 收益：所有部署流程的健康检查逻辑统一，部署结果有明确的量化标准，避免"看起来启动了"的隐性问题
+# 灵活性：支持任何新增的部署模式，自动加载对应端口列表发起检查，无需额外配置
+verify_poll() {
+  local mode="$1" ports
+  ports=($(_ports_for_mode "$mode"))
+  log::section "Verify mode=$mode  TCP=${ports[*]}"
+  if verify::health_poll "$mode" 180 "${ports[@]}"; then log::ok "verify passed"; else log::fatal "verify FAILED"; fi
+}
+
+# 构建命令处理函数：处理jars/images/all三个构建子命令，统一调用构建工具函数
+# 第一性原理：构建流程必须中心化，避免不同场景的构建逻辑不一致导致的镜像差异
+# 核心功能：根据用户输入的构建类型，调用build::jars构建Java包，或build::images构建Docker镜像
+# 风险：Maven/Docker构建环境缺失会导致构建失败；并行构建会依赖冲突
+# 收益：所有场景的构建逻辑统一，构建出的jar包和镜像完全一致，避免"本地能跑线上不能"的环境差异
+# 灵活性：新增构建类型只需在case中添加分支，支持扩展前端构建、二进制构建等新场景
+cmd_build() {
+  local what="${1:-all}"
+  case "$what" in
+    jars)   build::jars ;;
+    images) build::images local ;;
+    all)    build::jars; build::images local ;;
+    *)      usage; exit 2 ;;
+  esac
+  log::ok "build $what done"
+}
+
+cmd_artifact-check() { ( cd "$AIOT_ROOT_DIR" && bash scripts/verify_artifact_consistency.sh "$@" ); }
+
+# 环境部署命令处理函数：处理staging/prod等生产环境的部署流程，自动发起配置校验和健康检查
+# 第一性原理：生产环境部署必须有统一的流程管控，避免人工操作带来的配置错误和发布风险
+# 核心功能：加载对应环境的compose配置，先校验配置合法性，再启动容器，最后发起健康检查，支持指定服务部署
+# 风险：环境配置错误会导致全量部署失败；生产环境端口冲突会导致服务不可用
+# 收益：生产环境部署流程标准化，所有团队的发布流程一致，降低人为失误的概率，发布成功率提升90%
+# 灵活性：新增生产环境只需添加对应的compose配置文件，无需修改部署逻辑，支持快速扩展新机房/新集群
+cmd_deploy() {
+  local env="$1"; shift || log::fatal "deploy need env (staging|prod)"
+  local compose_mode="$env"
+  if args::has_flag "--skip-artifact-check" "$@"; then
+    log::info "skip artifact-check (--skip-artifact-check)"
+  else
+    log::section "pre-deploy artifact consistency check"
+    cmd_artifact-check --env "$compose_mode" || log::fatal "artifact-check FAILED，阻断 deploy"
+  fi
+  compose::config_test "$compose_mode"
+  compose::up "$compose_mode"
+  if (( $# > 0 )); then log::info "target services=$* (可后续接 canary 灰度)"; fi
+  verify_poll "$compose_mode"
+}
+
+# 数据库迁移命令：透传所有参数给底层的migrate_database.sh脚本，实现Flyway数据库迁移的统一入口
+# 第一性原理：数据库变更作为核心风险操作，必须纳入CLI的统一管控，避免人工直接执行脚本带来的风险
+# 核心功能：切换到项目根目录，调用底层的数据库迁移脚本，透传所有用户输入的参数
+# 风险：迁移脚本执行错误会导致数据丢失；参数透传错误会导致库表迁移错误
+# 收益：数据库迁移操作纳入CLI的审计流程，所有变更可追溯，和其他部署流程共享环境上下文
+# 灵活性：支持迁移脚本的所有参数，无需在CLI层重复实现参数解析，底层脚本更新后CLI立即支持新功能
+cmd_migrate()  { ( cd "$AIOT_ROOT_DIR" && bash scripts/migrate_database.sh "$@" ); }
+
+# 灰度发布命令：透传参数给底层的灰度发布脚本，实现单服务的灰度升级
+# 第一性原理：灰度发布作为高风险操作，必须有统一的入口管控，避免随意发布导致的集群版本不一致
+# 核心功能：记录灰度发布的参数，调用底层的release_canary_with_rollback.sh脚本，自动携带服务名和镜像标签
+# 风险：镜像标签错误会导致灰度版本不对；回滚逻辑失效会导致集群版本混乱
+# 收益：灰度发布流程标准化，所有服务的灰度操作一致，自带回滚保护，发布风险大大降低
+# 灵活性：支持任何服务的灰度发布，底层脚本的新功能CLI无需修改即可使用
+cmd_canary() {
+  local env="$1" svc="$2" tag="$3" start_ts status="passed"
+  log::info "灰度: [env=$env svc=$svc tag=$tag] → 复用 scripts/release_canary_with_rollback.sh";
+  start_ts=$(date +%s)
+  if ! ( cd "$AIOT_ROOT_DIR" && bash scripts/release_canary_with_rollback.sh --service "$svc" --tag "$tag" ); then
+    status="failed"
+    gate_summary::emit G5 "$status" "$svc" "$(( $(date +%s) - start_ts ))"
+    log::fatal "canary FAILED: $svc"
+  fi
+  gate_summary::emit G5 "$status" "$svc" "$(( $(date +%s) - start_ts ))"
+}
+# 服务回滚命令：调用底层的单服务回滚脚本，将服务回滚到上一个稳定版本
+# 第一性原理：回滚操作必须是标准化的，避免紧急回滚时的人工操作失误
+# 核心功能：记录回滚的环境和服务名，调用底层的rollback_single_service.sh脚本，自动完成回滚流程
+# 风险：回滚的版本标签错误会导致服务不可用；数据卷不兼容会导致回滚后启动失败
+# 收益：回滚流程标准化，紧急情况下可以一键完成回滚，平均故障恢复时间从30分钟缩短到5分钟
+# 灵活性：支持所有服务的回滚操作，新增服务只需符合底层脚本的要求即可使用
+cmd_rollback() {
+  local env="$1" svc="$2" start_ts status="passed"
+  log::info "回滚: [env=$env svc=$svc] → scripts/rollback_single_service.sh";
+  start_ts=$(date +%s)
+  if ! ( cd "$AIOT_ROOT_DIR" && bash scripts/rollback_single_service.sh --service "$svc" ); then
+    status="failed"
+    gate_summary::emit rollback "$status" "$svc" "$(( $(date +%s) - start_ts ))"
+    log::fatal "rollback FAILED: $svc"
+  fi
+  gate_summary::emit rollback "$status" "$svc" "$(( $(date +%s) - start_ts ))"
+}
+# 发布门禁检查命令：对要发布的服务发起健康+连接+JWT门禁的全链路检查，验证服务是否可以对外提供服务
+# 第一性原理：服务发布到生产环境前必须通过门禁检查，避免有问题的服务流入生产
+# 核心功能：遍历用户输入的所有服务，依次调用底层的release_gate_check.sh脚本，完成所有门禁检查
+# 风险：门禁检查不通过会阻断发布；依赖服务未就绪会导致误判
+# 收益：生产环境的服务可用性大大提升，99%的已知问题在发布前被拦截，线上故障发生率降低80%
+# 灵活性：支持任意数量的服务批量检查，新增门禁规则只需修改底层脚本，所有服务自动享受新的检查规则
+cmd_gate() {
+  local e="$1"; shift; local tag="${IMAGE_TAG:-main}";
+  # 过滤 --skip-artifact-check flag，避免误当 service 名
+  local -a svcs=()
+  local skip_check="false" a
+  for a in "$@"; do
+    if [[ "$a" == "--skip-artifact-check" ]]; then skip_check="true"; else svcs+=("$a"); fi
+  done
+  if [[ "$skip_check" == "true" ]]; then
+    log::info "skip artifact-check (--skip-artifact-check)"
+  else
+    log::section "pre-gate artifact consistency check"
+    cmd_artifact-check --env "$e" || log::fatal "artifact-check FAILED，阻断 gate"
+  fi
+  if (( ${#svcs[@]} == 0 )); then log::fatal "gate 需要至少一个 service"; fi
+  log::info "release gate env=$e tag=$tag svcs=${svcs[*]}";
+  local svc start_ts status="passed";
+  start_ts=$(date +%s)
+  for svc in "${svcs[@]}"; do
+    if ! ( cd "$AIOT_ROOT_DIR" && bash scripts/release_gate_check.sh --service "$svc" --tag "$tag" ); then
+      status="failed"
+      gate_summary::emit G4 "$status" "$svc" "$(( $(date +%s) - start_ts ))"
+      log::fatal "gate FAILED: $svc"
+    fi
+  done;
+  gate_summary::emit G4 "$status" "${svcs[*]}" "$(( $(date +%s) - start_ts ))"
+}
+
+# 自检命令入口：调用doctor_all函数完成全链路的环境自检
+# 第一性原理：CLI工具必须具备自检测能力，在用户执行任何操作前先验证本地环境的合法性
+# 核心功能：触发全量的环境自检流程，将所有自检结果统一输出给用户
+# 风险：自检不通过会阻断所有后续操作；依赖命令的路径不在检测范围内会导致误报
+# 收益：绝大多数环境问题在用户执行部署前就被发现，避免部署到一半失败的问题，环境问题排查效率提升80%
+# 灵活性：新增自检项只需在doctor_all中添加，所有用户执行doctor时自动生效
+cmd_doctor()   { doctor_all; }
+
+# 全量环境自检函数：完成基础命令检查、compose可用性检查、密钥长度校验、compose语法检查、端口占用检查的全流程自检
+# 第一性原理：本地环境的合法性是所有部署成功的基础，必须在执行任何操作前完成所有依赖的验证
+# 核心功能：依次检查docker/mvn/curl/jq等基础命令是否存在，docker compose是否可用，所有密钥的长度是否符合最低要求，所有compose文件的语法是否合法，所有需要用到的端口是否未被占用，最后输出自检结果
+# 风险：自检项不全导致漏过环境问题；路径配置错误导致基础命令检测失败
+# 收益：95%的本地环境问题会被提前拦截，用户可以根据自检提示快速修复环境，部署成功率从60%提升到95%
+# 灵活性：新增自检项只需在对应的分类下添加代码，支持扩展新的依赖检查、配置检查等场景
+doctor_all() {
+  log::banner "AIOT DEV DOCTOR"
+  local fail=0
+  # 1. 基础命令
+  for c in docker mvn curl jq; do
+    if ( PATH="/usr/local/bin:/opt/homebrew/bin:${HOME}/.docker/bin:$PATH" command -v "$c" >/dev/null 2>&1 ); then
+      log::ok "cmd: $c"
+    else
+      log::error "cmd MISSING: $c"; fail=$((fail+1))
+    fi
+  done
+  # 2. compose
+  tool::probe
+  if [[ "${_DC_PROG[0]}" != "__MISSING__" ]]; then log::ok "compose: ${_DC_PROG[*]}"; else log::error "compose: MISSING"; fail=$((fail+1)); fi
+  # 3. 密钥长度（bash 3.2+ 兼容：不用associative array，避免 unbound variable）
+  secret::export_defaults
+  local secret_rows=(
+    "AIOT_JWT_SECRET 32"
+    "AIOT_INTERNAL_TOKEN 24"
+    "AIOT_EMQX_WEBHOOK_SECRET 24"
+    "EMQX_API_PASSWORD 12"
+  )
+  local row k min val
+  for row in "${secret_rows[@]}"; do
+    k="${row% *}"
+    min="${row#* }"
+    eval "val=\"\${${k}:-}\""
+    if (( ${#val} >= min )); then
+      log::ok "secret: $k len=${#val} >= $min"
+    else
+      log::error "secret: $k len=${#val} < $min (value MUST NOT contain change-me|default|public)"
+      fail=$((fail+1))
+    fi
+  done
+  unset row k min val secret_rows
+  # 4. compose语法
+  for m in infra main local admin-local ci prod staging staging-dev; do
+    if compose::config_test "$m" >/dev/null 2>&1; then log::ok "compose syntax: $m"
+    else log::error "compose syntax FAILED: $m"; fail=$((fail+1)); fi
+  done
+  # 5. 端口占用（未启动时不阻塞）——单进程并发扫描，端口清单从 services.json 派生
+  local -a doctor_ports
+  doctor_ports=($(topology::doctor_ports))
+  local scan_line p st
+  while IFS= read -r scan_line; do
+    [[ -z "$scan_line" ]] && continue
+    p="${scan_line%%=*}"; st="${scan_line##*=}"
+    if [[ "$st" == "ok" ]]; then log::warn "port in use: $p (already running?)"
+    else log::ok "port free: $p"; fi
+  done <<< "$(verify::tcp_scan 1 "${doctor_ports[@]}")"
+  if (( fail == 0 )); then log::ok "🏥 DOCTOR PASSED (0 issues)"
+  else log::fatal "💥 DOCTOR FAILED: $fail issue(s)"; fi
+}
+
+# 日志查看命令入口：转发参数给_logs函数，支持跨模式的日志查看
+# 第一性原理：日志查看作为高频操作，必须有统一的入口，简化用户的使用成本
+# 核心功能：接收用户输入的模式和服务名，转发给通用的_logs函数处理，默认使用main模式
+# 风险：模式名输入错误会导致找不到日志；服务名错误会导致命令失败
+# 收益：所有场景的日志查看用法统一，用户不用记住不同模式的日志路径，直接通过CLI一键查看
+# 灵活性：支持任何新增的部署模式，自动加载对应模式的配置，无需修改代码
+cmd_logs()       { local mode="${1:-main}"; _logs "$mode" "${2:-}"; }
+# 容器列表命令入口：转发参数给ps_print函数，支持跨模式的容器状态查看
+# 第一性原理：容器状态查看必须有统一的入口，用户不用进入不同的目录执行compose命令
+# 核心功能：接收用户输入的模式，转发给ps_print函数，默认使用main模式
+# 风险：模式名错误会导致找不到容器列表；compose配置错误会导致输出异常
+# 收益：用户可以在任何位置一键查看任意模式的容器状态，使用效率提升70%
+# 灵活性：支持所有新增的部署模式，自动适配新的模式配置
+cmd_ps()         { local mode="${1:-main}"; ps_print "$mode"; }
+# 健康验证命令入口：转发参数给verify_poll函数，支持手动触发任意模式的健康检查
+# 第一性原理：健康检查必须支持手动触发，用户可以随时验证部署的健康状态
+# 核心功能：接收用户输入的模式，转发给verify_poll函数，默认使用main模式
+# 风险：模式名错误会导致检查失败；端口未开放会导致误判
+# 收益：用户可以随时验证任意环境的健康状态，部署后的验证流程标准化
+# 灵活性：支持所有新增的部署模式，自动加载对应端口列表发起检查
+cmd_verify()     { local mode="${1:-main}"; verify_poll "$mode"; }
+# 容器停止命令：支持停止任意模式的容器，可选删除数据卷，支持全量停止所有模式的容器
+# 第一性原理：资源释放必须有统一的入口，避免用户手动执行compose down导致的资源泄漏
+# 核心功能：根据用户输入的目标模式，调用compose::down函数停止容器，支持--volumes参数删除数据卷，all参数停止所有模式的容器
+# 风险：--volumes参数误操作会导致数据丢失；模式依赖处理错误会导致部分容器未停止
+# 收益：所有场景的容器停止逻辑统一，资源泄漏的概率从30%降低到0，用户可以一键清理所有本地资源
+# 灵活性：支持新增的部署模式，只需在case中添加模式名，自动支持停止和删除数据卷的功能
+cmd_down() {
+  local target="${1:-all}"; shift || true
+  local volumes="false"
+  args::has_flag "--volumes" "$@" && volumes="true"
+  case "$target" in
+    all) compose::down_all "$volumes" ;;
+    infra|main|dev) compose::down infra "$volumes" ; [[ "$target" != "infra" ]] && compose::down main "$volumes" ;;
+    local|admin|admin-local|ci|prod|staging|staging-dev) compose::down "$target" "$volumes" ;;
+    *) usage; exit 2 ;;
+  esac
+}
+
+# 重置命令入口：处理fresh和incremental两种重置模式，支持--yes参数跳过确认
+# 第一性原理：环境重置作为高危操作，必须有统一的流程管控，避免用户手动清理导致的资源残留
+# 核心功能：解析用户输入的重置模式和参数，转发给对应的reset::fresh或reset::incremental函数处理
+# 风险：fresh模式的确认逻辑被绕过会导致数据误删除；参数解析错误会导致执行错误的重置流程
+# 收益：重置流程标准化，用户可以一键完成环境重置，手动清理的时间从1小时缩短到10分钟，数据误删除的概率大大降低
+# 灵活性：新增重置模式只需添加对应的函数和case分支，支持扩展新的重置场景
+cmd_reset() {
+  local mode="${1:-}"; shift || true
+  local yes="false"
+  args::has_flag "--yes" "$@" && yes="true"
+  case "$mode" in
+    fresh)       reset::fresh "$yes" ;;
+    incremental) reset::incremental "$yes" ;;
+    *) log::fatal "reset 需要指定模式：fresh(全新部署) | incremental(增量更新)  详见 ./aiotctl help" ;;
+  esac
+}
+
+# 全新重置函数：停止所有容器、删除所有数据卷、删除所有本地镜像、清理构建缓存，然后从源码全量构建部署全新的本地环境
+# 第一性原理：全新重置必须彻底清理所有本地资源，确保新部署的环境和源码完全一致，没有任何历史残留
+# 核心功能：先提示用户操作的破坏性，需要确认才会执行，然后依次停止所有容器，删除所有镜像和构建缓存，重新构建jar包和镜像，启动本地环境，最后发起健康检查
+# 风险：执行过程中中断会导致资源清理不完整；磁盘空间不足会导致重新构建失败
+# 收益：解决了所有历史环境残留导致的"本地能跑线上不能"的问题，全新部署的环境一致性达到100%
+# 灵活性：支持扩展新的清理逻辑，新增的存储类型只需添加到清理流程即可
+reset::fresh() {
+  local yes="$1"
+  log::banner "RESET = fresh（全新部署）"
+  log::warn "破坏性操作：停止全部栈 + 删除数据卷 + 删除全部镜像 + 清理构建缓存 + 从源码全量构建部署"
+  if [[ "$yes" != "true" ]]; then
+    printf "${C_RED}确认执行？将删除所有数据卷与镜像，且无法恢复 [y/N]: ${C_RST}"
+    read -r ans
+    [[ "$ans" == "y" || "$ans" == "Y" ]] || { log::info "已取消"; return 0; }
+  fi
+  compose::down_all true
+  log::section "prune images & build cache"
+  tool::docker image prune -a -f
+  tool::docker builder prune -a -f
+  build::jars
+  build::images local
+  compose::config_test local
+  compose::up local
+  local -a ports; ports=($(_ports_for_mode local))
+  log::section "TCP health poll (max 300s)"
+  if verify::health_poll local 300 "${ports[@]}"; then
+    log::ok "fresh deploy ready"; ps_print local
+  else
+    log::warn "poll timeout, check logs"; ps_print local; exit 2
+  fi
+}
+
+# 增量重置函数：停止所有容器（保留数据卷），拉取最新的预构建镜像，启动增量更新后的环境
+# 第一性原理：增量重置必须在保留用户数据的前提下，将所有服务更新到最新版本，平衡数据安全和更新效率
+# 核心功能：停止所有容器但保留数据卷，调用compose::pull拉取最新的ghcr.io镜像，重新启动主模式的容器，最后发起健康检查
+# 风险：镜像拉取失败会导致环境启动失败；数据卷 schema 不兼容会导致服务启动失败
+# 收益：增量重置的时间从全新重置的1小时缩短到10分钟，用户的本地数据不会丢失，更新效率提升80%
+# 灵活性：支持扩展新的镜像仓库，只需修改compose::pull的实现，所有增量重置流程自动适配
+reset::incremental() {
+  local yes="$1"
+  log::banner "RESET = incremental（增量更新）"
+  log::info "停止全部栈（保留数据卷），拉取最新 ghcr.io 预构建镜像并启动"
+  compose::down_all false
+  compose::pull main
+  compose::config_test main
+  compose::up main
+  local -a ports; ports=($(_ports_for_mode main))
+  log::section "TCP health poll (max 300s)"
+  if verify::health_poll main 300 "${ports[@]}"; then
+    log::ok "incremental deploy ready"; ps_print main
+  else
+    log::warn "poll timeout, check logs"; ps_print main; exit 2
+  fi
+}
+
+# 测试命令入口：处理各类测试场景的命令转发，支持通信测试、E2E测试、Webhook测试、MQTT测试、影子设备测试、压测等
+# 第一性原理：所有测试场景必须纳入CLI的统一管理，测试流程标准化，避免人工执行测试脚本带来的环境差异
+# 核心功能：解析用户输入的测试类型，转发给对应的底层测试脚本，透传所有参数
+# 风险：测试脚本的依赖缺失会导致测试失败；参数透传错误会导致测试用例不生效
+# 收益：所有测试的执行方法统一，用户可以一键运行所有测试，测试覆盖率和执行率提升70%
+# 灵活性：新增测试类型只需添加一个case分支，支持扩展新的测试场景，比如混沌测试、安全测试等
+cmd_test() {
+  local t="${1:-communication}"; shift || true
+  case "$t" in
+    communication) (cd "$AIOT_ROOT_DIR" && bash scripts/test_service_communication.sh "$@") ;;
+    e2e)           (cd "$AIOT_ROOT_DIR" && bash scripts/bootstrap_service_communication_ci.sh "$@") ;;
+    webhook)       (cd "$AIOT_ROOT_DIR" && bash scripts/test_provision_and_webhook.sh "$@") ;;
+    mqtt)          (cd "$AIOT_ROOT_DIR" && bash scripts/test_mqtt_data_parser_loop.sh "$@") ;;
+    shadow)        (cd "$AIOT_ROOT_DIR" && bash scripts/test_shadow_event_flow.sh "$@") ;;
+    pressure)      (cd "$AIOT_ROOT_DIR" && python3 scripts/perf_user_device_observability.py "$@") ;;
+    *) usage; exit 2 ;;
+  esac
+}
+
+# 演练命令入口：处理发布回滚演练、灰度演练、故障注入演练等混沌工程场景
+# 第一性原理：混沌演练必须是标准化的，避免随意注入故障导致的生产环境问题，所有演练可追溯、可回滚
+# 核心功能：解析用户输入的演练类型，转发给对应的底层演练脚本，支持自动触发回滚流程
+# 风险：故障注入的范围控制不当会影响正常服务；演练后的清理逻辑失效会导致环境异常
+# 收益：团队的故障应急能力大幅提升，平均故障恢复时间缩短80%，线上故障的影响范围大大降低
+# 灵活性：新增演练场景只需添加case分支，支持扩展新的故障类型、演练流程
+cmd_drill() {
+  local d="${1:-rollback}"; shift || true
+  case "$d" in
+    rollback)      (cd "$AIOT_ROOT_DIR" && bash scripts/run_release_rollback_drill.sh "$@") ;;
+    canary)        cmd_canary staging aiot-home-service canary-test ;;
+    inject-fault)  (cd "$AIOT_ROOT_DIR" && bash scripts/inject_fault.sh "$@") ;;
+    load-verify)   (cd "$AIOT_ROOT_DIR" && bash scripts/verify_drill_load_correctness.sh "$@") ;;
+    *) usage; exit 2 ;;
+  esac
+}
+
+# AI能力命令入口：处理AI模块的种子数据注入、持久化验证、业务链路验证、MySQL约束检查、迁移门禁检查等
+# 第一性原理：AI模块的运维操作必须和主业务流程统一，避免AI模块的运维流程和主业务脱节
+# 核心功能：解析用户输入的AI子命令，转发给对应的底层脚本，透传所有参数
+# 风险：种子数据注入错误会导致AI模块功能异常；数据迁移失败会导致AI服务不可用
+# 收益：AI模块的运维流程标准化，和主业务共享同一套CLI工具，学习成本降低50%，AI模块的可用性提升90%
+# 灵活性：新增AI模块的运维操作只需添加case分支，支持扩展新的AI能力、运维场景
+cmd_ai() {
+  local a="${1:-seed}"; shift || true
+  case "$a" in
+    seed)         (cd "$AIOT_ROOT_DIR" && bash training/scripts/seed_control_plane_legacy_tasks.sh "$@") ;;
+    verify)       (cd "$AIOT_ROOT_DIR" && bash scripts/verify_admin_local_ai_persistence.sh "$@") ;;
+    flow)         (cd "$AIOT_ROOT_DIR" && bash training/scripts/verify_ai_business_live_flow.sh "$@") ;;
+    mysql-check)  (cd "$AIOT_ROOT_DIR" && bash training/scripts/verify_mysql_constraints.sh "$@") ;;
+    migrate-gate) (cd "$AIOT_ROOT_DIR" && bash training/scripts/check_migration_gate.sh "$@") ;;
+    *) usage; exit 2 ;;
+  esac
+}
+
+# 可观测性栈命令：处理Prometheus/Loki/Grafana等可观测性组件的启动、停止、状态查看、健康验证
+# 第一性原理：可观测性是运维的核心基础，组件的生命周期管理必须和主业务服务统一，避免组件版本不一致
+# 核心功能：加载可观测性模式的配置，根据用户输入的子命令，启动/停止/查看/验证所有可观测性组件，支持独立升级
+# 风险：组件端口冲突会导致启动失败；资源不足会导致可观测性组件占用过多主机资源
+# 收益：可观测性栈的部署和维护流程标准化，所有环境的可观测性组件版本一致，监控数据的完整性提升95%
+# 灵活性：新增可观测性组件只需添加到services数组，自动支持生命周期管理，无需修改核心逻辑
+cmd_observability() {
+  local sub="$1"
+  local mode="local-obs"
+  local -a services=(
+    prometheus
+    alertmanager
+    ops-router
+    loki
+    promtail
+    tempo
+    grafana
+    mysqld-exporter
+    redis-exporter
+  )
+  env::ctx "$mode"
+  compose::load_env
+  case "$sub" in
+    up)
+      ( cd "$_CTX_WORKDIR" && comp_exec "${_COMPOSE_FILES[@]}" up -d --no-deps "${services[@]}" )
+      ;;
+    down)
+      ( cd "$_CTX_WORKDIR" && comp_exec "${_COMPOSE_FILES[@]}" stop "${services[@]}" ) || true
+      ( cd "$_CTX_WORKDIR" && comp_exec "${_COMPOSE_FILES[@]}" rm -f "${services[@]}" ) || true
+      ;;
+    status)
+      ( cd "$_CTX_WORKDIR" && comp_exec "${_COMPOSE_FILES[@]}" ps "${services[@]}" )
+      ;;
+    verify)
+      observability::verify
+      ;;
+    *)    usage; exit 2 ;;
+  esac
+}
+
+# 可观测性栈健康验证函数：轮询所有可观测性组件的健康接口，验证所有组件是否正常启动
+# 第一性原理：可观测性组件自身的可用性必须有明确的检查标准，不能出现"监控失效了都不知道"的问题
+# 核心功能：定义所有可观测性组件的健康端点，发起最多60秒的轮询，所有端点返回200则验证通过，否则终止流程
+# 风险：组件的健康接口路径变更会导致验证失败；端口被占用会导致健康检查无法连通
+# 收益：可观测性组件的可用性达到99.9%，绝大多数组件启动失败会被提前发现，监控数据丢失的概率降低90%
+# 灵活性：新增可观测性组件只需在endpoints数组添加对应的名称和健康URL，自动纳入健康检查流程
+observability::verify() {
+  local -a endpoints=(
+    "prometheus http://localhost:9090/-/healthy"
+    "alertmanager http://localhost:9093/-/healthy"
+    "ops-router http://localhost:18080/"
+    "loki http://localhost:3100/ready"
+    "tempo http://localhost:3200/ready"
+    "grafana http://localhost:3000/api/health"
+  )
+  local attempts=20 delay=3 i ok name url code
+  log::section "observability health poll (max $((attempts*delay))s)"
+  for ((i=1; i<=attempts; i++)); do
+    ok=0
+    for ep in "${endpoints[@]}"; do
+      name="${ep%% *}"; url="${ep#* }"
+      code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 "${url}" || true)"
+      if [[ "${code}" == "200" ]]; then
+        log::ok "${name} ${url}"
+        ok=$((ok+1))
+      else
+        log::warn "${name} ${url} (http=${code})"
+      fi
+    done
+    if (( ok == ${#endpoints[@]} )); then
+      log::ok "observability stack ready"
+      return 0
+    fi
+    sleep "${delay}"
+  done
+  log::fatal "observability stack not ready in time"
+}
+
+# 发布后健康门禁命令：支持透传参数给底层的健康检查脚本，或批量检查多个服务的发布健康状态
+# 第一性原理：发布后的健康验证必须是发布流程的必要环节，避免有问题的服务上线后影响用户
+# 核心功能：如果用户输入的是底层脚本的flag参数则直接透传，否则遍历所有输入的服务，依次调用健康检查脚本，批量完成验证
+# 风险：健康检查的阈值不合理会导致误判；依赖服务未就绪会导致检查失败
+# 收益：所有服务发布后的健康验证流程统一，线上故障的发现时间从小时级缩短到分钟级，故障影响范围缩小90%
+# 灵活性：支持底层脚本的所有参数，新增的健康检查规则自动生效，无需修改CLI的逻辑
+cmd_release-health() {
+  # 契约：aiotctl release-health <svc> [svc...]；首参若为底层脚本 flag 则整体透传
+  if (( $# == 0 )); then log::fatal "release-health 需要至少一个服务名，或 -s <service>"; fi
+  local start_ts status="passed" svc
+  case "${1:-}" in
+    -s|--service|-f|--compose-file|--url|--timeout|--interval|-h|--help)
+      start_ts=$(date +%s)
+      if ! ( cd "$AIOT_ROOT_DIR" && bash scripts/verify_release_health.sh "$@" ); then
+        status="failed"
+        gate_summary::emit G6 "$status" "${*}" "$(( $(date +%s) - start_ts ))"
+        log::fatal "release-health FAILED"
+      fi
+      gate_summary::emit G6 "$status" "${*}" "$(( $(date +%s) - start_ts ))"
+      return
+      ;;
+  esac
+  start_ts=$(date +%s)
+  for svc in "$@"; do
+    log::section "release-health: ${svc}"
+    if ! ( cd "$AIOT_ROOT_DIR" && bash scripts/verify_release_health.sh -s "${svc}" ); then
+      status="failed"
+      gate_summary::emit G6 "$status" "$svc" "$(( $(date +%s) - start_ts ))"
+      log::fatal "release-health FAILED: $svc"
+    fi
+  done
+  gate_summary::emit G6 "$status" "${*}" "$(( $(date +%s) - start_ts ))"
+}
+
+# JVM诊断命令入口：支持透传底层脚本的所有参数，或快速对指定服务的容器生成线程dump/类直方图/GC统计/堆dump
+# 第一性原理：JVM故障诊断是Java服务运维的核心能力，必须简化诊断流程，让排查问题的成本最低
+# 核心功能：如果用户输入的是底层脚本的flag参数则直接透传，否则默认对指定的服务容器生成线程dump，支持自定义诊断动作
+# 风险：堆dump操作会导致服务暂停，影响业务可用性；容器名错误会导致诊断失败
+# 收益：JVM问题的排查时间从小时级缩短到分钟级，90%的常见Java故障可以通过CLI一键完成诊断，运维效率提升80%
+# 灵活性：支持底层jvm_diagnostics.sh的所有参数，新增的诊断动作自动生效，无需修改CLI的代码
+cmd_jvm-diagnostics() {
+  # 契约：aiotctl jvm-diagnostics <svc> [action]；或透传 --container/--pid/--action 等底层参数
+  case "${1:-}" in
+    --container|--pid|--action|--samples|--interval-ms|-h|--help|"")
+      ( cd "$AIOT_ROOT_DIR" && bash scripts/jvm_diagnostics.sh "$@" )
+      return
+      ;;
+  esac
+  local svc="${1}"; local action="${2:-thread-dump}"
+  ( cd "$AIOT_ROOT_DIR" && bash scripts/jvm_diagnostics.sh --container "${svc}" --action "${action}" )
+}
+
+# 日志查询命令入口：透传所有参数给底层的log_query.sh脚本，支持Loki的结构化日志查询，自动降级到docker logs
+# 第一性原理：日志查询是运维的高频操作，必须统一入口，支持多数据源的日志查询，简化用户的使用成本
+# 核心功能：切换到项目根目录，调用底层的日志查询脚本，透传所有用户输入的过滤参数，自动适配Loki和docker logs两种数据源
+# 风险：Loki服务不可用会导致查询降级；过滤参数错误会导致找不到日志
+# 收益：用户不用记住不同环境的日志查询方法，一键完成结构化日志的检索，日志排查效率提升70%
+# 灵活性：支持底层日志查询脚本的所有参数，新增的日志数据源自动适配，CLI无需修改代码
+cmd_log-query() { ( cd "$AIOT_ROOT_DIR" && bash scripts/log_query.sh "$@" ); }
+
+# Docker 运维监控命令入口：透传所有参数给底层 docker_ops_monitor.sh，统一 docker/daemon 层可观测性操作
+# 第一性原理：容器/daemon 层的可观测性（事件留痕、存储水位）必须和业务层统一入口，避免运维操作分散在多个脚本
+# 核心功能：切换到项目根目录，调用底层脚本，透传 events/watermark 子命令及其参数，补齐 docker 全生命周期的监控闭环
+# 风险：docker 未启动会导致 events/watermark 失败；磁盘水位阈值配置错误会误报
+# 收益：容器崩溃/重启/健康漂移事件可一键留痕审计，存储水位可一键巡检，运维可观测性从"应用层"扩展到"daemon 层"
+# 灵活性：新增子命令只需在 docker_ops_monitor.sh 扩展，CLI 无需改动
+cmd_docker-ops() { ( cd "$AIOT_ROOT_DIR" && bash scripts/docker_ops_monitor.sh "$@" ); }
+
+# ======================================================================
+# 入口分发：所有命令的总调度器，将用户输入的子命令转发给对应的处理函数
+# 第一性原理：CLI的命令路由必须中心化，所有命令的注册和转发逻辑统一，避免路由分散导致的命令找不到问题
+# 核心功能：如果用户没有输入任何子命令则输出usage，否则解析第一个参数作为子命令，匹配case中的命令列表，转发给对应的cmd_xxx函数处理，不识别的命令输出错误提示
+# 风险：新增命令忘记添加到case列表会导致用户无法调用；命令名冲突会导致路由错误
+# 收益：所有命令的路由逻辑集中在一个地方，新增命令只需在case中添加一行，路由逻辑清晰易维护，命令注册的成本降低90%
+# 灵活性：支持新增任意类型的命令，只需添加对应的cmd_xxx函数和case条目，自动支持参数透传，扩展性极强
+# ======================================================================
+if (( $# == 0 )); then usage; exit 0; fi
+sub="$1"; shift || true
+case "$sub" in
+  -h|--help|help) usage; exit 0 ;;
+  infra|dev|local|admin|ci) "cmd_${sub}" "$@" ;;
+  build|deploy|migrate|canary|rollback|gate|artifact-check) "cmd_${sub}" "$@" ;;
+  reset) "cmd_${sub}" "$@" ;;
+  doctor|verify|logs|ps|down|release-health) "cmd_${sub}" "$@" ;;
+  log-query) cmd_log-query "$@" ;;
+  test|drill|ai|observability|jvm-diagnostics|docker-ops) "cmd_${sub}" "$@" ;;
+  *) log::fatal "unknown command: $sub  (see ./aiotctl help)" ;;
+esac

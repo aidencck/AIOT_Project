@@ -1,0 +1,14 @@
+apiVersion: 1
+
+providers:
+  - name: AIOT Observability
+    orgId: 1
+    folder: AIOT Observability
+    folderUid: aiot-observability
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 30
+    allowUiUpdates: false
+    options:
+      path: /etc/grafana/provisioning/dashboards
+      foldersFromFilesStructure: false

@@ -1,0 +1,82 @@
+{{- if .Values.infra.nacos.enabled }}
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: nacos
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    app: nacos
+    {{- include "aiot.standardLabels" . | nindent 4 }}
+spec:
+  serviceName: nacos
+  replicas: {{ .Values.infra.nacos.replicas }}
+  selector: {matchLabels: {app: nacos}}
+  template:
+    metadata:
+      labels:
+        app: nacos
+        {{- include "aiot.standardLabels" . | nindent 4 }}
+    spec:
+      {{- include "aiot.podSecurityContext" . | nindent 6 }}
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                topologyKey: kubernetes.io/hostname
+                labelSelector:
+                  matchLabels:
+                    app: nacos
+      containers:
+        - name: nacos
+          image: {{ .Values.infra.nacos.image }}
+          ports:
+            - {containerPort: 8848, name: http}
+            - {containerPort: 9848, name: grpc}
+            - {containerPort: 9849, name: grpc-internal}
+          env:
+            - name: MODE
+              value: standalone
+            - name: NACOS_AUTH_ENABLE
+              value: "false"
+            - name: JVM_XMS
+              value: 256m
+            - name: JVM_XMX
+              value: 256m
+            - name: TZ
+              valueFrom: {configMapKeyRef: {name: aiot-common-config, key: TZ}}
+          volumeMounts: [{name: nacos-data, mountPath: /home/nacos/data}]
+          resources:
+            requests: {{ toYaml .Values.infra.nacos.resources.requests | nindent 14 }}
+            limits: {{ toYaml .Values.infra.nacos.resources.limits | nindent 14 }}
+          readinessProbe:
+            httpGet: {path: /nacos/v1/console/health/readiness, port: 8848}
+            initialDelaySeconds: 30
+            periodSeconds: 15
+            timeoutSeconds: 5
+          livenessProbe:
+            httpGet: {path: /nacos/v1/console/health/liveness, port: 8848}
+            initialDelaySeconds: 60
+            periodSeconds: 30
+            timeoutSeconds: 5
+          {{- include "aiot.containerSecurityContext" . | nindent 10 }}
+      volumes:
+        - name: nacos-data
+          persistentVolumeClaim: {claimName: nacos-data}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: nacos
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    app: nacos
+    {{- include "aiot.standardLabels" . | nindent 4 }}
+spec:
+  type: ClusterIP
+  ports:
+    - {port: 8848, targetPort: 8848, protocol: TCP, name: http}
+    - {port: 9848, targetPort: 9848, protocol: TCP, name: grpc}
+    - {port: 9849, targetPort: 9849, protocol: TCP, name: grpc-internal}
+  selector: {app: nacos}
+{{- end }}

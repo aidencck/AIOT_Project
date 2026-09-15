@@ -1,3 +1,10 @@
+---
+status: archived
+owner: 架构组
+fact_source: 代码 + docker-compose.yml
+updated_at: 2026-09-09
+---
+
 # AIoT 后端生产级部署架构、性能预判与数据设计
 
 > 作为架构师，当我们在本地验证了 MVP 的最小闭环后，必须以“终局思维”来规划生产环境的部署拓扑、容量预判和数据底座。本文档旨在为运维团队 (DevOps) 和 DBA 提供生产落地指南。

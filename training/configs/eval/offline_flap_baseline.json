@@ -1,0 +1,5 @@
+{
+  "scene": "OFFLINE_FLAP",
+  "min_schema_pass_rate": 0.99,
+  "min_total_samples": 1
+}

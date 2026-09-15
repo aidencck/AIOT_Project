@@ -1,0 +1,612 @@
+version: '3.8'
+
+networks:
+  aiot-net:
+    driver: bridge
+
+volumes:
+  mysql-data:
+  redis-data:
+  emqx-data:
+  nacos-data:
+  ollama-data:
+  prometheus-data:
+  loki-data:
+  tempo-data:
+  promtail-positions:
+  grafana-data:
+
+services:
+
+  mysql:
+    image: mysql:8.0
+    container_name: aiot-mysql
+
+    restart: unless-stopped
+    networks: [aiot-net]
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_PASSWORD}
+      MYSQL_DATABASE: aiot_cloud
+      TZ: Asia/Shanghai
+    volumes:
+      - mysql-data:/var/lib/mysql
+      - ../docker/mysql/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h localhost -uroot -p$${MYSQL_ROOT_PASSWORD} || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  mysqld-exporter:
+    image: prom/mysqld-exporter:v0.15.1
+    container_name: aiot-mysqld-exporter
+    profiles: ["observability"]
+    restart: unless-stopped
+    networks: [aiot-net]
+    # v0.15.0 起 DATA_SOURCE_NAME 已移除，改用 CLI 参数（username 支持 user:password 语法）
+    command:
+      - "--mysqld.username=aiot_app:${MYSQL_PASSWORD}"
+      - "--mysqld.address=aiot-mysql:3306"
+    depends_on:
+      mysql:
+        condition: service_healthy
+
+  redis:
+    image: redis:7.0-alpine
+    container_name: aiot-redis
+
+    restart: unless-stopped
+    networks: [aiot-net]
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis-exporter:
+    image: oliver006/redis_exporter:v1.62.0
+    container_name: aiot-redis-exporter
+    profiles: ["observability"]
+    restart: unless-stopped
+    networks: [aiot-net]
+    environment:
+      REDIS_ADDR: "redis://aiot-redis:6379"
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  emqx:
+    image: emqx:5.3.0
+    container_name: aiot-emqx
+
+    restart: unless-stopped
+    networks: [aiot-net]
+    environment:
+      EMQX_DASHBOARD__DEFAULT_USERNAME: ${EMQX_API_USER:-admin}
+      EMQX_DASHBOARD__DEFAULT_PASSWORD: ${EMQX_API_PASSWORD}
+      AUTH_WEBHOOK_URL: ${AUTH_WEBHOOK_URL:-http://aiot-auth-service:8082/api/v1/emqx/webhook}
+    volumes:
+      - emqx-data:/opt/emqx/data
+      - ../emqx-config:/opt/emqx/etc/emqx-config:ro
+    healthcheck:
+      test: ["CMD", "emqx", "ping"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  nacos:
+    image: nacos/nacos-server:v2.3.2-slim
+    container_name: aiot-nacos
+    restart: unless-stopped
+    networks: [aiot-net]
+    ports:
+      - "8848:8848"
+    environment:
+      MODE: standalone
+      NACOS_AUTH_ENABLE: "false"
+      JVM_XMS: 512m
+      JVM_XMX: 512m
+      JVM_XMN: 256m
+      TZ: Asia/Shanghai
+      management.endpoints.web.exposure.include: prometheus,health,info
+    volumes:
+      - nacos-data:/home/nacos/data
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8848/nacos/v1/console/health/readiness"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 40s
+
+  ollama:
+    image: ollama/ollama:latest
+    container_name: aiot-ollama
+    restart: unless-stopped
+    networks: [aiot-net]
+    environment:
+      OLLAMA_KEEP_ALIVE: 24h
+      # CPU 推理 + 内存受限环境限制并行请求数，避免 llama-server OOM killed
+      OLLAMA_NUM_PARALLEL: "1"
+    volumes:
+      - ollama-data:/root/.ollama
+    healthcheck:
+      test: ["CMD-SHELL", "ollama list >/dev/null 2>&1 || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  ollama-init:
+    image: ollama/ollama:latest
+    container_name: aiot-ollama-init
+    restart: "no"
+    networks: [aiot-net]
+    environment:
+      OLLAMA_HOST: http://ollama:11434
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen2.5:1.5b}
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - 'until ollama list >/dev/null 2>&1; do sleep 2; done; ollama pull "$${OLLAMA_MODEL:-qwen2.5:1.5b}"'
+    depends_on:
+      ollama:
+        condition: service_healthy
+
+  aiot-gateway:
+    image: ghcr.io/aidencck/aiot-java/aiot-gateway:${IMAGE_TAG:-main}
+    container_name: aiot-gateway
+
+    restart: on-failure:5
+    networks: [aiot-net]
+    env_file:
+      - ./env/${AIOT_ENV:-dev}/runtime.env
+    environment:
+      JAVA_OPTS: ${JAVA_OPTS_GATEWAY:- -Xms256m -Xmx256m}
+      SERVER_PORT: 8080
+      NACOS_SERVER_ADDR: nacos:8848
+    depends_on:
+      nacos:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8080/actuator/health/readiness"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          cpus: '1.5'
+          memory: 1536M
+        reservations:
+          cpus: '0.5'
+          memory: 384M
+
+  aiot-admin-web:
+    image: ghcr.io/aidencck/aiot-java/aiot-admin-web:${IMAGE_TAG:-main}
+    container_name: aiot-admin-web
+
+    restart: on-failure:5
+    networks: [aiot-net]
+    environment:
+      ADMIN_API_UPSTREAM: aiot-gateway:8080
+      ADMIN_API_RESOLVER: 127.0.0.11
+    depends_on:
+      aiot-gateway:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8080/"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+  aiot-device-service:
+    image: ghcr.io/aidencck/aiot-java/aiot-device-service:${IMAGE_TAG:-main}
+    container_name: aiot-device-service
+
+    restart: on-failure:5
+    networks: [aiot-net]
+    env_file:
+      - ./env/${AIOT_ENV:-dev}/runtime.env
+    environment:
+      JAVA_OPTS: ${JAVA_OPTS_DEVICE:- -Xms256m -Xmx256m}
+      SERVER_PORT: 8081
+      NACOS_SERVER_ADDR: nacos:8848
+      MYSQL_HOST: aiot-mysql
+      MYSQL_PORT: 3306
+      MYSQL_USER: aiot_app
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+      MYSQL_DB: aiot_cloud
+      AIOT_HOME_SERVICE_URL: lb://aiot-home-service
+      AIOT_RULE_SERVICE_URL: lb://aiot-rule-engine
+      AIOT_DATA_PARSER_BASE_URL: lb://aiot-data-parser
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      emqx:
+        condition: service_healthy
+      nacos:
+        condition: service_healthy
+      aiot-home-service:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8081/actuator/health/readiness"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          cpus: '1.5'
+          memory: 1152M
+        reservations:
+          cpus: '0.5'
+          memory: 384M
+
+  aiot-auth-service:
+    image: ghcr.io/aidencck/aiot-java/aiot-auth-service:${IMAGE_TAG:-main}
+    container_name: aiot-auth-service
+
+    restart: on-failure:5
+    networks: [aiot-net]
+    env_file:
+      - ./env/${AIOT_ENV:-dev}/runtime.env
+    environment:
+      JAVA_OPTS: ${JAVA_OPTS_AUTH:- -Xms256m -Xmx256m}
+      SERVER_PORT: 8082
+      NACOS_SERVER_ADDR: nacos:8848
+      MYSQL_HOST: aiot-mysql
+      MYSQL_PORT: 3306
+      MYSQL_USER: aiot_app
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+      MYSQL_DB: aiot_cloud
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      nacos:
+        condition: service_healthy
+      aiot-device-service:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8082/actuator/health/readiness"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          cpus: '3.0'
+          memory: 2304M
+        reservations:
+          cpus: '0.75'
+          memory: 576M
+
+  aiot-home-service:
+    image: ghcr.io/aidencck/aiot-java/aiot-home-service:${IMAGE_TAG:-main}
+    container_name: aiot-home-service
+
+    restart: on-failure:5
+    networks: [aiot-net]
+    env_file:
+      - ./env/${AIOT_ENV:-dev}/runtime.env
+    environment:
+      JAVA_OPTS: ${JAVA_OPTS_HOME:- -Xms256m -Xmx256m}
+      SERVER_PORT: 8083
+      NACOS_SERVER_ADDR: nacos:8848
+      MYSQL_HOST: aiot-mysql
+      MYSQL_PORT: 3306
+      MYSQL_USER: aiot_app
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+      MYSQL_DB: aiot_home
+      AIOT_DEVICE_SERVICE_URL: lb://aiot-device-service
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      nacos:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8083/actuator/health/readiness"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          cpus: '1.5'
+          memory: 1152M
+        reservations:
+          cpus: '0.5'
+          memory: 384M
+
+  aiot-rule-engine:
+    image: ghcr.io/aidencck/aiot-java/aiot-rule-engine:${IMAGE_TAG:-main}
+    container_name: aiot-rule-engine
+
+    restart: on-failure:5
+    networks: [aiot-net]
+    env_file:
+      - ./env/${AIOT_ENV:-dev}/runtime.env
+    environment:
+      JAVA_OPTS: ${JAVA_OPTS_RULE:- -Xms256m -Xmx256m}
+      SERVER_PORT: 8084
+      NACOS_SERVER_ADDR: nacos:8848
+      AIOT_DEVICE_SERVICE_URL: lb://aiot-device-service
+      AIOT_DATA_PARSER_BASE_URL: lb://aiot-data-parser
+      AI_LLM_ENABLED: ${AI_LLM_ENABLED:-true}
+      AI_LLM_BASE_URL: ${AI_LLM_BASE_URL:-http://ollama:11434}
+      AI_LLM_API_KEY: ${AI_LLM_API_KEY:-ollama}
+      AI_LLM_MODEL: ${AI_LLM_MODEL:-qwen2.5:1.5b}
+    depends_on:
+      redis:
+        condition: service_healthy
+      nacos:
+        condition: service_healthy
+      ollama:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8084/actuator/health/readiness"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          cpus: '1.5'
+          memory: 1152M
+        reservations:
+          cpus: '0.5'
+          memory: 384M
+
+  aiot-mqtt-adapter:
+    image: ghcr.io/aidencck/aiot-java/aiot-mqtt-adapter:${IMAGE_TAG:-main}
+    container_name: aiot-mqtt-adapter
+
+    restart: on-failure:5
+    networks: [aiot-net]
+    env_file:
+      - ./env/${AIOT_ENV:-dev}/runtime.env
+    environment:
+      JAVA_OPTS: ${JAVA_OPTS_MQTT:- -Xms256m -Xmx256m}
+      SERVER_PORT: 8085
+      NACOS_SERVER_ADDR: nacos:8848
+      SPRING_AUTOCONFIGURE_EXCLUDE: org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration,org.mybatis.spring.boot.autoconfigure.MybatisAutoConfiguration
+      AIOT_DATA_PARSER_BASE_URL: lb://aiot-data-parser
+    depends_on:
+      nacos:
+        condition: service_healthy
+      aiot-data-parser:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8085/actuator/health/readiness"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          cpus: '0.75'
+          memory: 768M
+        reservations:
+          cpus: '0.2'
+          memory: 144M
+
+  aiot-data-parser:
+    image: ghcr.io/aidencck/aiot-java/aiot-data-parser:${IMAGE_TAG:-main}
+    container_name: aiot-data-parser
+
+    restart: on-failure:5
+    networks: [aiot-net]
+    env_file:
+      - ./env/${AIOT_ENV:-dev}/runtime.env
+    environment:
+      JAVA_OPTS: ${JAVA_OPTS_PARSER:- -Xms256m -Xmx256m}
+      SERVER_PORT: 8086
+      NACOS_SERVER_ADDR: nacos:8848
+      SPRING_AUTOCONFIGURE_EXCLUDE: org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration,org.mybatis.spring.boot.autoconfigure.MybatisAutoConfiguration
+    depends_on:
+      redis:
+        condition: service_healthy
+      nacos:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8086/actuator/health/readiness"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          cpus: '0.75'
+          memory: 768M
+        reservations:
+          cpus: '0.2'
+          memory: 144M
+
+  aiot-shadow-service:
+    image: ghcr.io/aidencck/aiot-java/aiot-shadow-service:${IMAGE_TAG:-main}
+    container_name: aiot-shadow-service
+
+    restart: on-failure:5
+    networks: [aiot-net]
+    env_file:
+      - ./env/${AIOT_ENV:-dev}/runtime.env
+    environment:
+      JAVA_OPTS: ${JAVA_OPTS_SHADOW:- -Xms256m -Xmx256m}
+      SERVER_PORT: 8087
+      NACOS_SERVER_ADDR: nacos:8848
+      SPRING_AUTOCONFIGURE_EXCLUDE: org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration,org.mybatis.spring.boot.autoconfigure.MybatisAutoConfiguration
+    depends_on:
+      redis:
+        condition: service_healthy
+      nacos:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8087/actuator/health/readiness"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          cpus: '1.2'
+          memory: 1152M
+        reservations:
+          cpus: '0.3'
+          memory: 192M
+
+  # ---- 可观测性栈（单一事实源：仅在此处定义镜像/配置/健康探针，env overlay 只做端口暴露）----
+  prometheus:
+    image: prom/prometheus:v2.54.1
+    container_name: aiot-prometheus
+    profiles: ["observability"]
+    restart: unless-stopped
+    networks: [aiot-net]
+    ports:
+      - "9090:9090"
+    volumes:
+      - prometheus-data:/prometheus
+      - ../monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ../monitoring/prometheus/alerts:/etc/prometheus/alerts:ro
+      - ../monitoring/prometheus/rules:/etc/prometheus/rules:ro
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.enable-lifecycle'
+      - '--storage.tsdb.retention.time=15d'
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:9090/-/healthy"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+
+  alertmanager:
+    image: prom/alertmanager:v0.27.0
+    container_name: aiot-alertmanager
+    profiles: ["observability"]
+    restart: unless-stopped
+    networks: [aiot-net]
+    ports:
+      - "9093:9093"
+    volumes:
+      - ../monitoring/alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:9093/-/healthy"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+
+  ops-router:
+    image: ealen/echo-server:0.9.2
+    container_name: aiot-ops-router
+    profiles: ["observability"]
+    restart: unless-stopped
+    networks: [aiot-net]
+    ports:
+      - "18080:80"
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost/"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+
+  loki:
+    image: grafana/loki:3.1.1
+    container_name: aiot-loki
+    profiles: ["observability"]
+    restart: unless-stopped
+    networks: [aiot-net]
+    ports:
+      - "3100:3100"
+    volumes:
+      - loki-data:/loki
+      - ../monitoring/loki/loki.yml:/etc/loki/loki.yml:ro
+    command: -config.file=/etc/loki/loki.yml
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:3100/ready"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+
+  promtail:
+    image: grafana/promtail:3.1.1
+    container_name: aiot-promtail
+    profiles: ["observability"]
+    restart: unless-stopped
+    user: "0:0"
+    networks: [aiot-net]
+    volumes:
+      - promtail-positions:/positions
+      - ../monitoring/promtail/promtail.yml:/etc/promtail/promtail.yml:ro
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    command: -config.file=/etc/promtail/promtail.yml
+    depends_on:
+      loki:
+        condition: service_healthy
+
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:v0.47.2
+    container_name: aiot-cadvisor
+    profiles: ["observability"]
+    restart: unless-stopped
+    networks: [aiot-net]
+    expose:
+      - "8080"
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker:/var/lib/docker:ro
+      - /dev/disk/:/dev/disk:ro
+
+  tempo:
+    image: grafana/tempo:2.6.1
+    container_name: aiot-tempo
+    profiles: ["observability"]
+    restart: unless-stopped
+    networks: [aiot-net]
+    ports:
+      - "3200:3200"
+      - "4317:4317"
+      - "4318:4318"
+    volumes:
+      - tempo-data:/var/tempo
+      - ../monitoring/tempo/tempo.yml:/etc/tempo/tempo.yml:ro
+    command: -config.file=/etc/tempo/tempo.yml
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:3200/status"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+
+  grafana:
+    image: grafana/grafana:11.2.0
+    container_name: aiot-grafana
+    profiles: ["observability"]
+    restart: unless-stopped
+    networks: [aiot-net]
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-} # 无弱默认值，observability profile 专用
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /etc/grafana/provisioning/dashboards/aiot-overview.json
+      GF_DATE_FORMATS_DEFAULT_TIMEZONE: browser
+      GF_EXPLORE_ENABLED: "true"
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ../monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:3000/api/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+    ports:
+      - "3000:3000"

@@ -1,14 +1,21 @@
+---
+status: in-progress
+owner: 产研负责人
+fact_source: README.md + 代码
+updated_at: 2026-09-09
+---
+
 # AIoT 后端项目开发任务与人员分配清单 (Project Status)
 
-> **项目状态**: 🚧 MVP 阶段架构与骨架已完成，进入“从 1 到 100”的核心业务全功能研发阶段。
-> **目标**: 将当前基于内存的 Mock 服务，落地为真正基于高可用中间件（MySQL, Redis, EMQX, TDengine）的分布式微服务。
+> **项目状态**: ✅ MVP 可交付，核心业务全功能研发阶段（详见根 `README.md` 版本状态）。
+> **目标**: 将当前基于内存的 Mock 服务，落地为基于高可用中间件（MySQL, Redis, EMQX, Nacos）的分布式微服务；时序存储（TDengine）为目标态能力，当前未落地。
 
 ---
 
 ## 🎯 里程碑 1：持久化层与设备基础中心落地 (Persistence & Core Service)
 **目标**：打通 `aiot-device-service` 与 MySQL / Redis 的真实连接，废弃 ConcurrentHashMap 的 Mock 机制。
 
-> 架构整改任务池（P0/P1/P2）请统一参考：[architecture_remediation_backlog.md](file:///Users/aiden/Projects/AIOT-java/docs/architecture_remediation_backlog.md)
+> 架构整改任务池（P0/P1/P2）请统一参考：[architecture_remediation_backlog.md](https://github.com/aidencck/AIOT_Project/blob/main/docs/architecture_remediation_backlog.md)
 
 ### 📌 分配团队：**后端业务研发组 (Backend Team)** & **DBA**
 
@@ -34,9 +41,9 @@
 *   [x] **任务 2.2：设备接入鉴权接口开发 (Security)**
     *   **内容**：在 `aiot-auth-service` 中开发供 EMQX 回调的 HTTP Auth 接口。实现算法：校验 `Username=DeviceId` 和 `Password=HMAC_SHA256(DeviceId, DeviceSecret)`。
 *   [x] **任务 2.3：设备上下线事件流转 (Middleware)**
-    *   **内容**：订阅 EMQX 的系统 Topic (`$SYS/brokers/+/clients/+/connected` 等)，或者通过 Webhook 将上下线事件推送到 Kafka。
+    *   **内容**：通过 Webhook 将上下线事件写入 Redis Stream（`aiot:stream:device-event`）。
 *   [x] **任务 2.4：设备状态实时更新服务 (Backend)**
-    *   **内容**：消费上下线 Kafka 事件，更新 Redis 中设备的在线状态，并写入设备活动日志。
+    *   **内容**：消费 Redis Stream 上下线事件（consumer group + ACK + pending 回收 + DLQ），更新 Redis 中设备的在线状态，并写入设备活动日志。
 
 ---
 
@@ -46,11 +53,11 @@
 ### 📌 分配团队：**大数据/流计算组 (Data & Stream Team)** & **后端研发组 (Backend)**
 
 *   [ ] **任务 3.1：MQTT 协议适配与数据桥接 (Middleware)**
-    *   **内容**：在 `aiot-mqtt-adapter` 中，将设备发布到 `/sys/{productId}/{deviceName}/thing/event/property/post` 的 Payload，完整转发至 Kafka Raw Topic。
+    *   **内容**：在 `aiot-mqtt-adapter` 中，将设备发布到 `/sys/{productId}/{deviceName}/thing/event/property/post` 的 Payload，完整转发至消息流（当前 Redis Stream，Kafka 为候选）。
 *   [ ] **任务 3.2：物模型解析服务开发 (Data Team)**
-    *   **内容**：在 `aiot-data-parser` 中，消费 Kafka Raw Topic，结合缓存中的产品物模型 (TSL)，将二进制/JSON 转化为标准时序结构，推送到 Kafka Clean Topic。
-*   [ ] **任务 3.3：时序数据库 (TDengine) 写入开发 (Data Team)**
-    *   **内容**：对接 TDengine，自动为设备创建超级表 (Super Table) 的子表，并将遥测数据高频写入。
+    *   **内容**：在 `aiot-data-parser` 中，消费消息流，结合缓存中的产品物模型 (TSL)，将二进制/JSON 转化为标准时序结构。
+*   [ ] **任务 3.3：时序数据库写入开发 (Data Team)**
+    *   **内容**：对接时序存储（TDengine 为候选，待评估），自动为设备创建超级表 (Super Table) 的子表，并将遥测数据高频写入。
 *   [ ] **任务 3.4：基础规则引擎触发 (Backend / Stream Team)**
     *   **内容**：在 `aiot-rule-engine` 中，消费清洗后的数据，支持配置类似 `if temperature > 50 then send alert` 的阈值规则，并推送告警信息到 App 端。
 

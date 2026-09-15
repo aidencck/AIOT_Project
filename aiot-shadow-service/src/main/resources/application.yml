@@ -1,10 +1,12 @@
+spring.config.import: optional:classpath:application-common.yml
+
 server:
-  port: 8083
+  port: 8087
 
 spring:
   application:
     name: aiot-shadow-service
-  cloud:
-    nacos:
-      discovery:
-        server-addr: ${NACOS_ADDR:127.0.0.1:8848}
+
+aiot:
+  events:
+    device-status-stream-group: ${AIOT_SHADOW_EVENTS_DEVICE_STATUS_STREAM_GROUP:aiot-shadow-service-group}

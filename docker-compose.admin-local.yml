@@ -1,0 +1,24 @@
+services:
+  aiot-home-service:
+    ports:
+      - "8083:8083"
+    environment:
+      - SPRING_CLOUD_SERVICE_REGISTRY_AUTO_REGISTRATION_ENABLED=false
+
+  aiot-rule-engine:
+    ports:
+      - "8084:8084"
+    environment:
+      - SPRING_CLOUD_SERVICE_REGISTRY_AUTO_REGISTRATION_ENABLED=false
+      - AIOT_AI_PERSISTENCE_MYSQL_ENABLED=true
+      - AIOT_AI_PERSISTENCE_MYSQL_URL=jdbc:mysql://aiot-mysql:3306/aiot_cloud?useUnicode=true&characterEncoding=utf-8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
+      - AIOT_AI_PERSISTENCE_MYSQL_USER=aiot_app
+      - AIOT_AI_PERSISTENCE_MYSQL_PASSWORD=${MYSQL_PASSWORD}
+
+  aiot-device-service:
+    ports:
+      - "8081:8081"
+    environment:
+      # LOCAL-ONLY：绕过直传用户 JWT 校验，仅限本机联调，严禁复制到 staging/prod/compose 目录
+      - AIOT_SECURITY_ALLOW_DIRECT_USER_JWT=true
+      - SPRING_CLOUD_SERVICE_REGISTRY_AUTO_REGISTRATION_ENABLED=false

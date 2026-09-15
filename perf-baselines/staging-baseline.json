@@ -1,0 +1,11 @@
+{
+  "profile": "nightly-baseline",
+  "scenario": "emqx-webhook",
+  "min_success_ratio": 0.999,
+  "max_http_5xx_ratio": 0.001,
+  "max_network_failed_000": 0,
+  "max_latency_p95_sec": 0.3,
+  "max_latency_p99_sec": 0.8,
+  "max_regression_ratio": 0.15,
+  "notes": "staging / nightly 基线，用于跟踪稳态吞吐与时延回归。"
+}

@@ -1,0 +1,16 @@
+apiVersion: v2
+name: aiot-platform
+description: AIoT Java Platform Kubernetes Helm Chart
+type: application
+version: 2.0.0
+appVersion: "1.0.0"
+keywords:
+  - aiot
+  - iot
+  - microservices
+  - mqtt
+home: https://github.com/aidencck/aiot-java
+maintainers:
+  - name: aiden
+    email: aiden@aiot.local
+dependencies: []

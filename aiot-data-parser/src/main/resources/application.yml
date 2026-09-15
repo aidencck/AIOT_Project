@@ -1,10 +1,13 @@
+spring.config.import: optional:classpath:application-common.yml
+
 server:
   port: 8086
 
 spring:
   application:
     name: aiot-data-parser
-  cloud:
-    nacos:
-      discovery:
-        server-addr: ${NACOS_ADDR:127.0.0.1:8848}
+
+aiot:
+  security:
+    validate:
+      entries: "aiot.internal.token:24"

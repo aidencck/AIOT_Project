@@ -1,22 +1,31 @@
+spring.config.import: optional:classpath:application-common.yml
+
 server:
   port: 8082
+  # webhook 高并发入口：提升线程与连接队列容量，避免 1000 并发下 Tomcat 线程耗尽导致网关 503/504
+  tomcat:
+    threads:
+      max: 500
+      min-spare: 50
+    accept-count: 500
+    max-connections: 4096
 
 spring:
   application:
     name: aiot-auth-service
-  cloud:
-    nacos:
-      discovery:
-        server-addr: ${NACOS_ADDR:127.0.0.1:8848}
   datasource:
     driver-class-name: com.mysql.cj.jdbc.Driver
-    url: jdbc:mysql://${MYSQL_HOST:127.0.0.1:3306}/aiot_cloud?useUnicode=true&characterEncoding=utf-8&serverTimezone=Asia/Shanghai&useSSL=false
-    username: ${MYSQL_USER:root}
-    password: ${MYSQL_PASSWORD:root}
-  data:
-    redis:
-      host: ${REDIS_HOST:127.0.0.1}
-      port: 6379
+    url: jdbc:mysql://${MYSQL_HOST:127.0.0.1}:${MYSQL_PORT:3306}/${MYSQL_DB:aiot_cloud}?useUnicode=true&characterEncoding=utf-8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
+    username: ${MYSQL_USER}
+    password: ${MYSQL_PASSWORD}
+    hikari:
+      maximum-pool-size: 64
+      minimum-idle: 16
+      connection-timeout: 30000
+      max-lifetime: 1500000
+      idle-timeout: 600000
+      keepalive-time: 120000
+      connection-test-query: SELECT 1
 
 mybatis-plus:
   mapper-locations: classpath*:/mapper/**/*.xml
@@ -26,3 +35,14 @@ mybatis-plus:
       logic-delete-field: isDeleted
       logic-delete-value: 1
       logic-not-delete-value: 0
+
+aiot:
+  security:
+    validate:
+      entries: "aiot.internal.token:24,aiot.emqx.webhook.secret:24"
+  events:
+    publish-max-retries: ${AIOT_EVENTS_PUBLISH_MAX_RETRIES:2}
+  emqx:
+    webhook:
+      secret: ${AIOT_EMQX_WEBHOOK_SECRET}
+      max-skew-seconds: ${AIOT_EMQX_WEBHOOK_MAX_SKEW_SECONDS:300}

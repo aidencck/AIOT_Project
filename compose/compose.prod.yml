@@ -1,0 +1,49 @@
+version: '3.8'
+
+services:
+
+  emqx:
+    ports:
+      - "1883:1883"
+
+  aiot-gateway:
+    ports:
+      - "8080:8080"
+    environment:
+      AIOT_ENV: prod
+      SPRING_PROFILES_ACTIVE: prod
+
+  aiot-device-service:
+    environment:
+      AIOT_ENV: prod
+      SPRING_PROFILES_ACTIVE: prod
+
+  aiot-auth-service:
+    environment:
+      AIOT_ENV: prod
+      SPRING_PROFILES_ACTIVE: prod
+
+  aiot-home-service:
+    environment:
+      AIOT_ENV: prod
+      SPRING_PROFILES_ACTIVE: prod
+
+  aiot-rule-engine:
+    environment:
+      AIOT_ENV: prod
+      SPRING_PROFILES_ACTIVE: prod
+
+  aiot-mqtt-adapter:
+    environment:
+      AIOT_ENV: prod
+      SPRING_PROFILES_ACTIVE: prod
+
+  aiot-data-parser:
+    environment:
+      AIOT_ENV: prod
+      SPRING_PROFILES_ACTIVE: prod
+
+  aiot-shadow-service:
+    environment:
+      AIOT_ENV: prod
+      SPRING_PROFILES_ACTIVE: prod

@@ -1,0 +1,29 @@
+# staging：云预发环境（示例按 AWS 配置，按目标云替换）
+global:
+  imageRegistry: <ACCOUNT_ID>.dkr.ecr.<region>.amazonaws.com/aiot-java   # 或 ACR/ACR/TCR
+  storageClass: gp3    # AWS；Azure=managed-premium / GCP=standard-rwo / 阿里=alicloud-disk-essd / 腾讯=cbs
+  imagePullSecrets:
+    - name: regcred     # 私有仓库拉取凭证
+
+# 凭据禁止明文入库，部署前用外部 Secret / --set 注入，此处留空占位。
+secrets:
+  mysqlRootPassword: ""
+  mysqlPassword: ""
+  redisPassword: ""
+  emqxApiPassword: ""
+  aiotJwtSecret: ""
+  aiotInternalToken: ""
+  aiotEmqxWebhookSecret: ""
+  grafanaAdminPassword: ""
+
+ingress:
+  className: nginx
+  tls:
+    enabled: true
+    secretName: aiot-tls
+  hosts:
+    api: aiot-staging.example.com
+    mqttWs: mqtt-staging.example.com
+    emqxDashboard: emqx-dashboard-staging.example.com
+    grafana: grafana-staging.example.com
+    prometheus: prometheus-staging.example.com

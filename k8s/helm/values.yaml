@@ -1,0 +1,277 @@
+# AIoT Platform Helm Chart 默认契约值
+# 云相关字段（storageClass / imageRegistry / ingress.className / endpoints / serviceType）
+# 一律由各环境 values-<env>.yaml 覆盖，禁止在默认值中写死云厂商默认名。
+
+global:
+  namespace: aiot
+  # 业务镜像仓库（不含尾斜杠），如 ghcr.io/aidencck/aiot-java。环境必须覆盖。
+  imageRegistry: ""
+  imageTag: main
+  imagePullPolicy: IfNotPresent
+  imagePullSecrets: []
+  # 存储类必须由环境覆盖：AWS gp3 / Azure managed-premium / GCP standard-rwo / 阿里 alicloud-disk-essd / 腾讯 cbs
+  storageClass: ""
+  tz: Asia/Shanghai
+
+common:
+  crossServiceTimeoutMs: 2000
+  crossServiceMaxRetries: 1
+  crossServiceRetryBackoffMs: 200
+  crossServiceCbFailureThreshold: 3
+  crossServiceCbOpenMs: 10000
+
+# 托管服务端点抽象：切云托管 RDS/Redis 时只改此处，不改各服务 workload。
+endpoints:
+  mysql:
+    host: mysql
+    port: "3306"
+    user: aiot_app          # 低权限业务用户（由 mysql init SQL 创建），禁止用 root
+    db: aiot_cloud
+    homeDb: aiot_home
+  redis:
+    host: redis
+    port: "6379"
+  emqx:
+    host: emqx
+  nacos:
+    host: nacos
+    port: "8848"
+
+# 敏感信息默认全部为空，强制由外部 Secret 管理 / deploy.sh --set 注入，禁止明文入库。
+secrets:
+  mysqlRootPassword: ""
+  mysqlPassword: ""
+  redisPassword: ""
+  emqxApiUser: admin
+  emqxApiPassword: ""
+  aiotJwtSecret: ""
+  aiotInternalToken: ""
+  aiotEmqxWebhookSecret: ""
+  grafanaAdminUser: admin
+  grafanaAdminPassword: ""
+
+# 统一 Pod/容器安全上下文（PSS restricted 方向）。
+security:
+  runAsNonRoot: true
+  runAsUser: 1000
+  runAsGroup: 1000
+  fsGroup: 1000
+  seccompProfile: RuntimeDefault
+  allowPrivilegeEscalation: false
+  capabilitiesDrop: [ALL]
+
+infra:
+  mysql:
+    enabled: true
+    image: mysql:8.0
+    replicas: 1
+    storage: 20Gi
+    serviceType: ClusterIP
+    resources:
+      requests: {cpu: "500m", memory: "1Gi"}
+      limits: {cpu: "2", memory: "4Gi"}
+  redis:
+    enabled: true
+    image: redis:7.0-alpine
+    replicas: 1
+    storage: 8Gi
+    serviceType: ClusterIP
+    resources:
+      requests: {cpu: "250m", memory: "512Mi"}
+      limits: {cpu: "1", memory: "2Gi"}
+  emqx:
+    enabled: true
+    image: emqx:5.3.0
+    replicas: 1
+    storage: 10Gi
+    serviceType: LoadBalancer   # MQTT 1883 需 L4 出口，各云注解见 per-env values
+    resources:
+      requests: {cpu: "500m", memory: "1Gi"}
+      limits: {cpu: "2", memory: "3Gi"}
+  nacos:
+    enabled: true
+    image: nacos/nacos-server:v2.3.2
+    replicas: 1
+    storage: 2Gi
+    serviceType: ClusterIP
+    resources:
+      requests: {cpu: "250m", memory: "512Mi"}
+      limits: {cpu: "1", memory: "1Gi"}
+
+services:
+  gateway:
+    enabled: true
+    replicas: 2
+    port: 8080
+    javaOpts: "-Xms256m -Xmx256m"
+    resources:
+      requests: {cpu: "250m", memory: "512Mi"}
+      limits: {cpu: "1", memory: "1Gi"}
+    hpa:
+      enabled: true
+      minReplicas: 2
+      maxReplicas: 6
+      cpuUtilization: 70
+  authService:
+    enabled: true
+    replicas: 2
+    port: 8082
+    javaOpts: "-Xms256m -Xmx256m"
+    resources:
+      requests: {cpu: "250m", memory: "512Mi"}
+      limits: {cpu: "1", memory: "1Gi"}
+    hpa:
+      enabled: true
+      minReplicas: 2
+      maxReplicas: 6
+      cpuUtilization: 70
+  deviceService:
+    enabled: true
+    replicas: 2
+    port: 8081
+    javaOpts: "-Xms256m -Xmx256m"
+    resources:
+      requests: {cpu: "500m", memory: "1Gi"}
+      limits: {cpu: "2", memory: "2Gi"}
+    hpa:
+      enabled: true
+      minReplicas: 2
+      maxReplicas: 8
+      cpuUtilization: 70
+  homeService:
+    enabled: true
+    replicas: 2
+    port: 8083
+    javaOpts: "-Xms256m -Xmx256m"
+    resources:
+      requests: {cpu: "250m", memory: "512Mi"}
+      limits: {cpu: "1", memory: "1Gi"}
+    hpa:
+      enabled: true
+      minReplicas: 2
+      maxReplicas: 6
+      cpuUtilization: 70
+  ruleEngine:
+    enabled: true
+    replicas: 2
+    port: 8084
+    javaOpts: "-Xms256m -Xmx256m"
+    resources:
+      requests: {cpu: "500m", memory: "1Gi"}
+      limits: {cpu: "2", memory: "2Gi"}
+    hpa:
+      enabled: true
+      minReplicas: 2
+      maxReplicas: 6
+      cpuUtilization: 70
+  shadowService:
+    enabled: true
+    replicas: 2
+    port: 8087
+    javaOpts: "-Xms256m -Xmx256m"
+    resources:
+      requests: {cpu: "250m", memory: "512Mi"}
+      limits: {cpu: "1", memory: "1Gi"}
+    hpa:
+      enabled: true
+      minReplicas: 2
+      maxReplicas: 6
+      cpuUtilization: 70
+  mqttAdapter:
+    enabled: true
+    replicas: 2
+    port: 8085
+    javaOpts: "-Xms256m -Xmx256m"
+    resources:
+      requests: {cpu: "250m", memory: "512Mi"}
+      limits: {cpu: "1", memory: "1Gi"}
+    hpa:
+      enabled: true
+      minReplicas: 2
+      maxReplicas: 6
+      cpuUtilization: 70
+  dataParser:
+    enabled: true
+    replicas: 2
+    port: 8086
+    javaOpts: "-Xms256m -Xmx256m"
+    resources:
+      requests: {cpu: "250m", memory: "512Mi"}
+      limits: {cpu: "1", memory: "1Gi"}
+    hpa:
+      enabled: true
+      minReplicas: 2
+      maxReplicas: 6
+      cpuUtilization: 70
+  adminWeb:
+    enabled: true
+    replicas: 2
+    port: 8080
+    # 前端静态站点独立镜像名（与 Java aiot-<service> 命名解耦，不进入 Java 服务矩阵）
+    image: aiot-admin-web
+    resources:
+      requests: {cpu: "50m", memory: "64Mi"}
+      limits: {cpu: "200m", memory: "128Mi"}
+
+observability:
+  prometheus:
+    enabled: true
+    image: prom/prometheus:v2.54.1
+    storage: 30Gi
+    resources:
+      requests: {cpu: "500m", memory: "1Gi"}
+      limits: {cpu: "2", memory: "4Gi"}
+  alertmanager:
+    enabled: true
+    image: prom/alertmanager:v0.27.0
+    resources:
+      requests: {cpu: "100m", memory: "128Mi"}
+      limits: {cpu: "500m", memory: "512Mi"}
+  loki:
+    enabled: true
+    image: grafana/loki:3.1.1
+    storage: 20Gi
+    resources:
+      requests: {cpu: "250m", memory: "512Mi"}
+      limits: {cpu: "1", memory: "2Gi"}
+  promtail:
+    enabled: true
+    image: grafana/promtail:3.1.1
+    resources:
+      requests: {cpu: "100m", memory: "128Mi"}
+      limits: {cpu: "500m", memory: "512Mi"}
+  tempo:
+    enabled: true
+    image: grafana/tempo:2.6.1
+    storage: 10Gi
+    resources:
+      requests: {cpu: "250m", memory: "512Mi"}
+      limits: {cpu: "1", memory: "2Gi"}
+  grafana:
+    enabled: true
+    image: grafana/grafana:11.2.0
+    storage: 5Gi
+    resources:
+      requests: {cpu: "250m", memory: "512Mi"}
+      limits: {cpu: "1", memory: "1Gi"}
+
+ingress:
+  enabled: true
+  className: nginx
+  tls:
+    enabled: false
+    secretName: aiot-tls
+  hosts:
+    api: aiot.local
+    admin: admin.aiot.local
+    mqttWs: mqtt.aiot.local
+    emqxDashboard: emqx-dashboard.aiot.local
+    grafana: grafana.aiot.local
+    prometheus: prometheus.aiot.local
+
+networkPolicy:
+  enabled: true
+
+pdb:
+  enabled: true
+  minAvailable: 1

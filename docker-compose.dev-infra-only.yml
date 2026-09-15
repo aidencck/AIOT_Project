@@ -1,0 +1,100 @@
+version: '3.8'
+
+networks:
+  aiot-dev-net:
+    driver: bridge
+    driver_opts:
+      com.docker.network.driver.mtu: 1450
+
+volumes:
+  mysql-data:
+    driver: local
+  redis-data:
+    driver: local
+  emqx-data:
+    driver: local
+
+x-default-healthcheck: &default-hc
+  interval: 10s
+  timeout: 5s
+  retries: 3
+
+services:
+  mysql:
+    image: mysql:8.0
+    platform: linux/amd64
+    container_name: aiot-mysql
+    restart: unless-stopped
+    networks: [aiot-dev-net]
+    ports:
+      - "127.0.0.1:3306:3306"
+    command: >
+      --max-connections=200
+      --innodb-buffer-pool-size=512M
+      --innodb-log-file-size=128M
+      --innodb-flush-method=O_DIRECT_NO_FSYNC
+      --skip-log-bin
+      --performance-schema=OFF
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_PASSWORD:?MYSQL_PASSWORD is required (no weak default)}
+      MYSQL_DATABASE: aiot_cloud
+      TZ: Asia/Shanghai
+    volumes:
+      - mysql-data:/var/lib/mysql
+      - ./docker/mysql/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      <<: *default-hc
+      start_period: 25s
+      test: ["CMD-SHELL", "mysqladmin ping -h localhost -uroot -p$${MYSQL_ROOT_PASSWORD} || exit 1"]
+    deploy:
+      resources:
+        limits: { cpus: '1.0', memory: 768M }
+        reservations: { cpus: '0.3', memory: 256M }
+
+  redis:
+    image: redis:7.0-alpine
+    platform: linux/arm64/v8
+    container_name: aiot-redis
+    restart: unless-stopped
+    networks: [aiot-dev-net]
+    ports:
+      - "127.0.0.1:6379:6379"
+    command: ["redis-server", "--save", "", "--appendonly", "no", "--maxmemory", "256mb", "--maxmemory-policy", "allkeys-lru", "--tcp-keepalive", "60"]
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      <<: *default-hc
+      start_period: 0s
+      test: ["CMD", "redis-cli", "ping"]
+    deploy:
+      resources:
+        limits: { cpus: '0.5', memory: 320M }
+        reservations: { cpus: '0.1', memory: 64M }
+
+  emqx:
+    image: emqx:5.3.0
+    platform: linux/arm64/v8
+    container_name: aiot-emqx
+    restart: unless-stopped
+    networks: [aiot-dev-net]
+    ports:
+      - "127.0.0.1:1883:1883"
+      - "127.0.0.1:18083:18083"
+    environment:
+      EMQX_NAME: aiot-emqx
+      EMQX_HOST: 127.0.0.1
+      EMQX_DASHBOARD__DEFAULT_USERNAME: ${EMQX_API_USER:-admin}
+      EMQX_DASHBOARD__DEFAULT_PASSWORD: ${EMQX_API_PASSWORD:?EMQX_API_PASSWORD is required (no weak default)}
+      EMQX_LOG__LEVEL: warning
+      EMQX_NODE__PROCESS_LIMIT: 1024
+      EMQX_NODE__MAX_PORTS: 1024
+    volumes:
+      - emqx-data:/opt/emqx/data
+    healthcheck:
+      <<: *default-hc
+      start_period: 25s
+      test: ["CMD-SHELL", "emqx ctl status 2>/dev/null || emqx ping || exit 1"]
+    deploy:
+      resources:
+        limits: { cpus: '1.0', memory: 640M }
+        reservations: { cpus: '0.2', memory: 256M }

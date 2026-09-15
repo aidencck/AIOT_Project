@@ -1,0 +1,39 @@
+name: 功能/需求
+description: 提出新能力或增强，明确商业目标与验收标准
+title: "[Feature] "
+labels: ["enhancement"]
+body:
+  - type: input
+    id: goal
+    attributes:
+      label: 目标
+      description: 一句话说明要解决的商业/经营问题
+    validations:
+      required: true
+  - type: dropdown
+    id: priority
+    attributes:
+      label: 优先级
+      options:
+        - P0 紧急
+        - P1 高
+        - P2 中
+        - P3 低
+    validations:
+      required: true
+  - type: textarea
+    id: scope
+    attributes:
+      label: 范围与方案
+      description: 涉及的服务/模块、技术方案、边界
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: 验收标准
+      placeholder: |
+        - [ ] 可度量的验收点
+  - type: textarea
+    id: risk
+    attributes:
+      label: 风险与回退
+      description: 数据一致性、性能、合规等风险及回退方案

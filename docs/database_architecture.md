@@ -1,3 +1,10 @@
+---
+status: archived
+owner: 架构组
+fact_source: 代码 + 迁移脚本
+updated_at: 2026-09-09
+---
+
 # AIoT 后端数据库与存储架构设计
 
 ## 1. 存储选型与整体架构 (Storage Architecture)

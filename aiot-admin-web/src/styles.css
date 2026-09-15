@@ -1,0 +1,414 @@
+:root {
+  color-scheme: light;
+  font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  color: #1f2937;
+  background: #f3f6fb;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-width: 1280px;
+  background: #f3f6fb;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+.admin-shell {
+  display: grid;
+  grid-template-columns: 240px 1fr;
+  min-height: 100vh;
+}
+
+.admin-sidebar {
+  background: #0f172a;
+  color: #e2e8f0;
+  padding: 24px 20px;
+}
+
+.admin-logo h1,
+.admin-logo p {
+  margin: 0;
+}
+
+.admin-logo p {
+  margin-top: 4px;
+  color: #94a3b8;
+}
+
+.admin-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 32px;
+}
+
+.admin-nav-link {
+  padding: 12px 14px;
+  border-radius: 10px;
+  color: #cbd5e1;
+}
+
+.admin-nav-link.active,
+.admin-nav-link:hover {
+  background: #1e293b;
+  color: #ffffff;
+}
+
+.admin-main {
+  display: flex;
+  flex-direction: column;
+}
+
+.admin-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 24px 32px 16px;
+  border-bottom: 1px solid #dbe3ef;
+  background: #ffffff;
+}
+
+.admin-header h2,
+.admin-header p,
+.page-header h3,
+.page-header p,
+.panel h4 {
+  margin: 0;
+}
+
+.admin-header p,
+.page-header p,
+.table-footer,
+.snapshot-list,
+.stage-card p,
+.stage-card small {
+  color: #64748b;
+}
+
+.admin-header-actions,
+.filter-row,
+.page-header {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
+
+.page-header {
+  justify-content: space-between;
+}
+
+.admin-content {
+  padding: 24px 32px 40px;
+}
+
+.page-section {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.stats-grid,
+.two-column-grid,
+.stage-grid {
+  display: grid;
+  gap: 16px;
+}
+
+.stats-grid {
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+}
+
+.two-column-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.stage-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.panel {
+  background: #ffffff;
+  border: 1px solid #dbe3ef;
+  border-radius: 16px;
+  padding: 20px;
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.04);
+}
+
+.stat-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.panel-label {
+  font-size: 13px;
+  color: #64748b;
+}
+
+.panel-value {
+  font-size: 32px;
+  line-height: 1;
+}
+
+.admin-button,
+.admin-input {
+  border-radius: 10px;
+  border: 1px solid #cbd5e1;
+  font: inherit;
+}
+
+.admin-button {
+  background: #2563eb;
+  color: #ffffff;
+  padding: 10px 16px;
+  cursor: pointer;
+}
+
+.admin-button-secondary {
+  background: #ffffff;
+  color: #1e293b;
+}
+
+.admin-input {
+  min-width: 220px;
+  padding: 10px 12px;
+  background: #ffffff;
+}
+
+.admin-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 16px;
+}
+
+.admin-table th,
+.admin-table td {
+  padding: 12px 10px;
+  border-bottom: 1px solid #e2e8f0;
+  text-align: left;
+  font-size: 14px;
+}
+
+.snapshot-list {
+  margin: 16px 0 0;
+  padding-left: 18px;
+}
+
+.stage-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 16px;
+  border-radius: 12px;
+  background: #f8fafc;
+  border-left: 4px solid #2563eb;
+}
+
+.stage-card.attention {
+  background: #fff7ed;
+  border-left-color: #ea580c;
+}
+
+.stage-card.optional {
+  background: #fffbeb;
+  border-left-color: #ca8a04;
+}
+
+.stage-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.login-page {
+  display: grid;
+  place-items: center;
+  min-height: 100vh;
+  padding: 24px;
+}
+
+.login-card {
+  width: 520px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  background: #ffffff;
+  border-radius: 20px;
+  border: 1px solid #dbe3ef;
+  padding: 28px;
+  box-shadow: 0 20px 48px rgba(15, 23, 42, 0.08);
+}
+
+.login-card h1,
+.login-card p {
+  margin: 0;
+}
+
+.login-textarea {
+  min-height: 140px;
+  resize: vertical;
+  padding: 12px;
+}
+
+/* 登录/注册表单 */
+.auth-tabs {
+  display: flex;
+  gap: 8px;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.auth-tab {
+  flex: 1;
+  padding: 10px;
+  border: none;
+  background: transparent;
+  color: #64748b;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  border-radius: 10px 10px 0 0;
+}
+
+.auth-tab.active {
+  color: #2563eb;
+  border-bottom: 2px solid #2563eb;
+}
+
+.auth-form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.auth-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.auth-field span {
+  font-size: 13px;
+  color: #475569;
+}
+
+.auth-field .admin-input {
+  min-width: 0;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.auth-error {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: #fef2f2;
+  color: #dc2626;
+  font-size: 13px;
+}
+
+.auth-submit {
+  width: 100%;
+  padding: 12px;
+  font-weight: 600;
+}
+
+.auth-submit:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.admin-user {
+  color: #1e293b;
+  font-weight: 600;
+  font-size: 14px;
+  padding: 0 4px;
+}
+
+/* 分组导航 */
+.admin-nav-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 16px;
+}
+
+.admin-nav-group:first-child {
+  margin-top: 0;
+}
+
+.admin-nav-group-label {
+  margin: 0;
+  padding: 0 14px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #64748b;
+}
+
+/* 消息提示 */
+.flash {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: 10px;
+  font-size: 14px;
+}
+
+.flash-success {
+  background: #f0fdf4;
+  color: #16a34a;
+}
+
+.flash-error {
+  background: #fef2f2;
+  color: #dc2626;
+}
+
+/* 表单与面板 */
+.form-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.form-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.form-row {
+  margin-top: 16px;
+}
+
+.panel-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.admin-textarea {
+  min-height: 96px;
+  resize: vertical;
+}
+
+.admin-input-inline {
+  min-width: 180px;
+}
+
+.action-cell {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}

@@ -1,3 +1,10 @@
+---
+status: archived
+owner: 架构组
+fact_source: 代码
+updated_at: 2026-09-09
+---
+
 # AIoT 后端基础组件库说明 (aiot-common)
 
 `aiot-common` 是 AIoT 微服务体系的基础设施组件库，旨在为所有上层微服务（如 Gateway, Device, Auth 等）提供一致的编码规范、统一响应格式以及全局异常处理机制。
@@ -30,8 +37,12 @@
     *   `200`: SUCCESS (操作成功)
     *   `500`: FAILED (操作失败/系统异常)
     *   `400`: VALIDATE_FAILED (参数校验失败)
+    *   `4001`: PARAM_MISSING (缺少必填参数)
+    *   `4002`: REQUEST_BODY_INVALID (请求体格式错误)
     *   `401`: UNAUTHORIZED (暂未登录或 token 过期)
     *   `403`: FORBIDDEN (没有相关权限)
+    *   `4040`: RESOURCE_NOT_FOUND (资源不存在)
+    *   `4050`: METHOD_NOT_ALLOWED (请求方法不支持)
     *   `4004`: DEVICE_NOT_FOUND (业务错误：设备不存在)
 
 ### 2.2 全局自动响应封装 (`GlobalResponseHandler`)

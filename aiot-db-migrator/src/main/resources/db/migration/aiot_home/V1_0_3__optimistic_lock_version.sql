@@ -1,0 +1,6 @@
+-- 家庭/房间信息表增加乐观锁版本号，配合 Mybatis-Plus OptimisticLockerInnerInterceptor 防止并发更新丢数据
+ALTER TABLE `home_info`
+    ADD COLUMN `version` int NOT NULL DEFAULT 0 COMMENT '乐观锁版本号' AFTER `update_time`;
+
+ALTER TABLE `room_info`
+    ADD COLUMN `version` int NOT NULL DEFAULT 0 COMMENT '乐观锁版本号' AFTER `update_time`;

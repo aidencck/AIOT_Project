@@ -1,0 +1,70 @@
+{{- if .Values.infra.redis.enabled }}
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: redis
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    app: redis
+    {{- include "aiot.standardLabels" . | nindent 4 }}
+spec:
+  serviceName: redis
+  replicas: {{ .Values.infra.redis.replicas }}
+  selector: {matchLabels: {app: redis}}
+  template:
+    metadata:
+      labels:
+        app: redis
+        {{- include "aiot.standardLabels" . | nindent 4 }}
+    spec:
+      {{- include "aiot.podSecurityContext" . | nindent 6 }}
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                topologyKey: kubernetes.io/hostname
+                labelSelector:
+                  matchLabels:
+                    app: redis
+      containers:
+        - name: redis
+          image: {{ .Values.infra.redis.image }}
+          command: ["sh", "-c", "redis-server --requirepass $REDIS_PASSWORD"]
+          ports: [{containerPort: 6379, name: redis}]
+          env:
+            - name: REDIS_PASSWORD
+              valueFrom: {secretKeyRef: {name: aiot-secrets, key: REDIS_PASSWORD}}
+          volumeMounts: [{name: redis-data, mountPath: /data}]
+          resources:
+            requests: {{ toYaml .Values.infra.redis.resources.requests | nindent 14 }}
+            limits: {{ toYaml .Values.infra.redis.resources.limits | nindent 14 }}
+          readinessProbe:
+            exec: {command: ["sh", "-c", "redis-cli -a $REDIS_PASSWORD ping"]}
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+          livenessProbe:
+            exec: {command: ["sh", "-c", "redis-cli -a $REDIS_PASSWORD ping"]}
+            initialDelaySeconds: 30
+            periodSeconds: 20
+            timeoutSeconds: 5
+          {{- include "aiot.containerSecurityContext" . | nindent 10 }}
+      volumes:
+        - name: redis-data
+          persistentVolumeClaim: {claimName: redis-data}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    app: redis
+    {{- include "aiot.standardLabels" . | nindent 4 }}
+spec:
+  type: ClusterIP
+  clusterIP: None
+  ports: [{port: 6379, targetPort: 6379, protocol: TCP, name: redis}]
+  selector: {app: redis}
+{{- end }}

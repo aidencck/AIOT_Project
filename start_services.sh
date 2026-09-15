@@ -1,19 +1,9 @@
-#!/bin/bash
-echo "Packaging all modules..."
-mvn clean package -DskipTests
-
-echo "Starting Gateway Service..."
-nohup java -jar aiot-gateway/target/aiot-gateway-1.0.0-SNAPSHOT.jar > aiot-gateway.log 2>&1 &
-echo $! > gateway.pid
-
-echo "Starting Device Service..."
-nohup java -jar aiot-device-service/target/aiot-device-service-1.0.0-SNAPSHOT.jar > aiot-device-service.log 2>&1 &
-echo $! > device.pid
-
-echo "Starting Auth Service..."
-nohup java -jar aiot-auth-service/target/aiot-auth-service-1.0.0-SNAPSHOT.jar > aiot-auth-service.log 2>&1 &
-echo $! > auth.pid
-
-echo "Waiting for services to register with Nacos (30 seconds)..."
-sleep 30
-echo "Services started."
+#!/usr/bin/env bash
+# LEGACY COMPAT WRAPPER → FORWARD TO ./aiotctl dev up
+# 已合并: ./aiotctl dev up  或  ./aiotctl dev up --verify
+echo "⚠️  $(basename "$0") 已合并为工程化单入口: ./aiotctl dev up" >&2
+echo "   如需健康验证: ./aiotctl verify main" >&2
+echo "   本次为兼容继续执行..." >&2
+ROOT_DIR="$(cd "$(dirname "$0")" && pwd)"
+cd "$ROOT_DIR"
+exec ./aiotctl dev up "$@"

@@ -1,3 +1,10 @@
+---
+status: archived
+owner: 架构组
+fact_source: 代码
+updated_at: 2026-09-09
+---
+
 # AIoT 后端 Spring Cloud Alibaba 工程骨架规划
 
 ## 1. 工程模块划分 (Maven Multi-Module)

@@ -1,0 +1,196 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+  cat <<'EOF'
+用法:
+  ./scripts/release_gate_check.sh -s <service> -t <image_tag> [选项]
+
+必填参数:
+  -s, --service        docker-compose 服务名（例如: aiot-device-service）
+  -t, --tag            目标发布镜像标签（例如: sha-1a2b3c4 / v1.2.3）
+
+可选参数:
+  -f, --compose-file   compose 文件路径（默认: docker-compose.yml）
+      --local          本地镜像模式（跳过 registry pull，改用本地镜像 tag 校验）
+      --skip-baseline  跳过发布前基线健康检查
+      --baseline-timeout 基线健康检查超时（秒，默认: 60）
+      --env            发布环境门禁强度: prod|staging|dev（默认: dev）
+  -h, --help           显示帮助
+
+说明:
+  发布门禁检查包含：
+  1) compose 文件与服务存在性检查
+  2) 服务必须配置 healthcheck
+  3) 服务必须配置 deploy.resources.limits（内存/CPU，--env prod 阻断，staging/dev 告警）
+  4) 目标镜像可拉取
+  5) 可选：当前运行实例基线健康检查
+EOF
+}
+
+ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+cd "${ROOT_DIR}"
+
+SERVICE=""
+IMAGE_TAG=""
+COMPOSE_FILE="docker-compose.yml"
+LOCAL="0"
+SKIP_BASELINE="0"
+BASELINE_TIMEOUT="60"
+ENV="dev"
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -s|--service)
+      SERVICE="${2:-}"
+      shift 2
+      ;;
+    -t|--tag)
+      IMAGE_TAG="${2:-}"
+      shift 2
+      ;;
+    -f|--compose-file)
+      COMPOSE_FILE="${2:-}"
+      shift 2
+      ;;
+    --local)
+      LOCAL="1"
+      shift
+      ;;
+    --skip-baseline)
+      SKIP_BASELINE="1"
+      shift
+      ;;
+    --baseline-timeout)
+      BASELINE_TIMEOUT="${2:-}"
+      shift 2
+      ;;
+    --env)
+      ENV="${2:-}"
+      shift 2
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    *)
+      echo "ERROR: 未知参数: $1"
+      usage
+      exit 1
+      ;;
+  esac
+done
+
+if [[ -z "${SERVICE}" || -z "${IMAGE_TAG}" ]]; then
+  echo "ERROR: --service 与 --tag 为必填参数"
+  usage
+  exit 1
+fi
+
+if ! [[ "${BASELINE_TIMEOUT}" =~ ^[0-9]+$ ]]; then
+  echo "ERROR: --baseline-timeout 需为正整数秒"
+  exit 1
+fi
+
+case "${ENV}" in
+  prod|staging|dev) ;;
+  *)
+    echo "ERROR: --env 仅支持 prod|staging|dev（当前: ${ENV}）"
+    exit 1
+    ;;
+esac
+
+if ! command -v docker >/dev/null 2>&1; then
+  echo "ERROR: 未检测到 docker"
+  exit 1
+fi
+
+COMPOSE_CMD=(docker compose)
+if ! docker compose version >/dev/null 2>&1; then
+  if command -v docker-compose >/dev/null 2>&1; then
+    COMPOSE_CMD=(docker-compose)
+  else
+    echo "ERROR: 未检测到 docker compose / docker-compose"
+    exit 1
+  fi
+fi
+
+if [[ ! -f "${COMPOSE_FILE}" ]]; then
+  echo "ERROR: compose 文件不存在: ${COMPOSE_FILE}"
+  exit 1
+fi
+
+# 本地模式叠加 docker-compose.local.yml，使服务镜像指向本地 aiot-*:<tag>
+COMPOSE_FILES=(-f "${COMPOSE_FILE}")
+if [[ "${LOCAL}" == "1" ]]; then
+  if [[ ! -f "docker-compose.local.yml" ]]; then
+    echo "ERROR: compose 文件不存在: docker-compose.local.yml"
+    exit 1
+  fi
+  COMPOSE_FILES+=(-f "docker-compose.local.yml")
+fi
+
+# 先捕获服务清单再单独 grep，避免 pipefail 下 `docker compose ... | grep -q`
+# 因 grep 提前退出触发上游 SIGPIPE 导致 pipeline 被误判为失败
+services_list="$("${COMPOSE_CMD[@]}" "${COMPOSE_FILES[@]}" config --services 2>/dev/null || true)"
+if ! grep -Fxq "${SERVICE}" <<< "${services_list}"; then
+  echo "ERROR: compose 中不存在服务: ${SERVICE}"
+  exit 1
+fi
+
+# 用 JSON 精确校验服务是否配置 healthcheck，避免 sed 解析 YAML 缩进脆弱导致的误判
+if ! "${COMPOSE_CMD[@]}" "${COMPOSE_FILES[@]}" config --format json 2>/dev/null | \
+  python3 -c 'import json,sys; d=json.load(sys.stdin); s=d["services"].get(sys.argv[1]); sys.exit(0 if s and "healthcheck" in s else 1)' "${SERVICE}"; then
+  echo "ERROR: ${SERVICE} 缺少 healthcheck 配置，禁止发布"
+  exit 1
+fi
+
+# 用 JSON 校验服务是否配置 deploy.resources.limits（内存/CPU），分层门禁：
+# prod 缺失阻断发布，staging/dev 缺失仅告警
+limits_ok=1
+if ! "${COMPOSE_CMD[@]}" "${COMPOSE_FILES[@]}" config --format json 2>/dev/null | \
+  python3 -c 'import json,sys; d=json.load(sys.stdin); s=d["services"].get(sys.argv[1]); limits=((s or {}).get("deploy") or {}).get("resources", {}).get("limits"); sys.exit(0 if limits and "memory" in limits and "cpus" in limits else 1)' "${SERVICE}"; then
+  limits_ok=0
+fi
+if [[ "${limits_ok}" == "0" ]]; then
+  case "${ENV}" in
+    prod)
+      echo "ERROR: ${SERVICE} 缺少 deploy.resources.limits（内存/CPU）配置，禁止发布"
+      exit 1
+      ;;
+    staging|dev)
+      echo "[Gate] WARN: ${SERVICE} 缺少 deploy.resources.limits（内存/CPU）配置（env=${ENV}，不阻断）"
+      ;;
+  esac
+fi
+
+if [[ "${LOCAL}" == "1" ]]; then
+  echo "[Gate] 本地模式：校验基线本地镜像存在: ${SERVICE}:local"
+  if ! docker image inspect "${SERVICE}:local" >/dev/null 2>&1; then
+    echo "ERROR: 本地基线镜像不存在: ${SERVICE}:local"
+    exit 1
+  fi
+else
+  echo "[Gate] 验证目标镜像可拉取: ${SERVICE}:${IMAGE_TAG}"
+  IMAGE_TAG="${IMAGE_TAG}" "${COMPOSE_CMD[@]}" "${COMPOSE_FILES[@]}" pull "${SERVICE}" >/dev/null
+fi
+
+if [[ "${SKIP_BASELINE}" == "1" ]]; then
+  echo "[Gate] 已跳过基线健康检查（--skip-baseline）"
+  echo "[Gate] 通过"
+  exit 0
+fi
+
+running_cid="$("${COMPOSE_CMD[@]}" "${COMPOSE_FILES[@]}" ps -q "${SERVICE}" || true)"
+if [[ -n "${running_cid}" ]]; then
+  echo "[Gate] 执行发布前基线健康检查: ${SERVICE}"
+  "${ROOT_DIR}/scripts/verify_release_health.sh" \
+    --service "${SERVICE}" \
+    --compose-file "${COMPOSE_FILE}" \
+    --timeout "${BASELINE_TIMEOUT}" \
+    --interval 5
+else
+  echo "[Gate] 当前未检测到运行中的 ${SERVICE}，跳过基线健康检查"
+fi
+
+echo "[Gate] 通过"

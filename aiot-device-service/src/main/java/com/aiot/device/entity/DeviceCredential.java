@@ -1,21 +1,39 @@
 package com.aiot.device.entity;
 
+import com.baomidou.mybatisplus.annotation.FieldFill;
+import com.baomidou.mybatisplus.annotation.IdType;
+import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
-import com.baomidou.mybatisplus.annotation.TableLogic;
 import lombok.Data;
+
 import java.time.LocalDateTime;
 
+/**
+ * 设备凭证表
+ */
 @Data
 @TableName("device_credential")
 public class DeviceCredential {
-    @TableId
-    private Long id;
+
+    @TableId(type = IdType.ASSIGN_ID)
+    private String id;
+
     private String deviceId;
-    private String deviceSecret;
+
+    /**
+     * 认证类型：1-一机一密，2-一型一密
+     */
     private Integer authType;
-    @TableLogic
-    private Integer isDeleted;
+
+    private String deviceSecret;
+
+    @TableField(fill = FieldFill.INSERT)
     private LocalDateTime createTime;
+
+    @TableField(fill = FieldFill.INSERT_UPDATE)
     private LocalDateTime updateTime;
+
+    @TableField(fill = FieldFill.INSERT)
+    private Integer isDeleted;
 }

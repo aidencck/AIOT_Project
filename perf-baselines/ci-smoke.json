@@ -1,0 +1,10 @@
+{
+  "profile": "ci-smoke",
+  "scenario": "emqx-webhook",
+  "min_success_ratio": 0.995,
+  "max_http_5xx": 0,
+  "max_network_failed_000": 0,
+  "max_latency_p95_sec": 0.2,
+  "max_latency_p99_sec": 0.4,
+  "notes": "PR 轻量性能门禁，目标是防止明显退化进入主干。"
+}

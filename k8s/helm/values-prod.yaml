@@ -1,0 +1,50 @@
+# prod：云生产环境（示例按 AWS 配置，按目标云替换）
+global:
+  imageRegistry: <ACCOUNT_ID>.dkr.ecr.<region>.amazonaws.com/aiot-java
+  storageClass: gp3    # AWS；Azure=managed-premium / GCP=standard-rwo / 阿里=alicloud-disk-essd / 腾讯=cbs
+  imagePullSecrets:
+    - name: regcred
+
+# 生产凭据必须由外部密钥管理（SealedSecret/ExternalSecret/CI 注入），禁止在此留明文。
+secrets:
+  mysqlRootPassword: ""
+  mysqlPassword: ""
+  redisPassword: ""
+  emqxApiPassword: ""
+  aiotJwtSecret: ""
+  aiotInternalToken: ""
+  aiotEmqxWebhookSecret: ""
+  grafanaAdminPassword: ""
+
+# 生产扩容：HPA 与 replicas 保持 minReplicas 一致，避免互相覆盖。
+services:
+  deviceService:
+    replicas: 3
+    hpa: {minReplicas: 3, maxReplicas: 8}
+  ruleEngine:
+    replicas: 3
+    hpa: {minReplicas: 3, maxReplicas: 8}
+
+infra:
+  emqx:
+    replicas: 3
+    serviceType: LoadBalancer
+
+ingress:
+  className: nginx
+  tls:
+    enabled: true
+    secretName: aiot-tls
+  hosts:
+    api: aiot.example.com
+    mqttWs: mqtt.example.com
+    emqxDashboard: emqx-dashboard.example.com
+    grafana: grafana.example.com
+    prometheus: prometheus.example.com
+
+networkPolicy:
+  enabled: true
+
+pdb:
+  enabled: true
+  minAvailable: 1

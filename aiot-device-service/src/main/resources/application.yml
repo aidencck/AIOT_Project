@@ -1,28 +1,51 @@
+spring.config.import: optional:classpath:application-common.yml
+
 server:
   port: 8081
 
 spring:
   application:
     name: aiot-device-service
-  cloud:
-    nacos:
-      discovery:
-        server-addr: ${NACOS_ADDR:127.0.0.1:8848}
   datasource:
     driver-class-name: com.mysql.cj.jdbc.Driver
-    url: jdbc:mysql://${MYSQL_HOST:127.0.0.1:3306}/aiot_cloud?useUnicode=true&characterEncoding=utf-8&serverTimezone=Asia/Shanghai&useSSL=false
-    username: ${MYSQL_USER:root}
-    password: ${MYSQL_PASSWORD:root}
-  data:
-    redis:
-      host: ${REDIS_HOST:127.0.0.1}
-      port: 6379
+    url: jdbc:mysql://${MYSQL_HOST:127.0.0.1}:${MYSQL_PORT:3306}/${MYSQL_DB:aiot_cloud}?useUnicode=true&characterEncoding=utf-8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
+    username: ${MYSQL_USER}
+    password: ${MYSQL_PASSWORD}
+    hikari:
+      maximum-pool-size: 8
+      minimum-idle: 2
+      connection-timeout: 30000
+      max-lifetime: 1500000
+      idle-timeout: 600000
+      keepalive-time: 120000
+      connection-test-query: SELECT 1
 
 emqx:
   api:
     base-url: http://${EMQX_HOST:127.0.0.1}:18083
-    username: ${EMQX_API_USER:admin}
-    password: ${EMQX_API_PASSWORD:public}
+    username: ${EMQX_API_USER}
+    password: ${EMQX_API_PASSWORD}
+
+aiot:
+  security:
+    allow-direct-user-jwt: ${AIOT_SECURITY_ALLOW_DIRECT_USER_JWT:false}
+    validate:
+      entries: "aiot.internal.token:24,aiot.security.jwt.secret:32,emqx.api.password:12"
+  home-service:
+    base-url: ${AIOT_HOME_SERVICE_URL:lb://aiot-home-service}
+  rule-service:
+    base-url: ${AIOT_RULE_SERVICE_URL:lb://aiot-rule-engine}
+  mqtt:
+    host: ${AIOT_MQTT_HOST:mqtt.aiot.com}
+    port: ${AIOT_MQTT_PORT:1883}
+  provision:
+    token-ttl-seconds: ${AIOT_PROVISION_TOKEN_TTL_SECONDS:600}
+    exchange-lock-seconds: ${AIOT_PROVISION_EXCHANGE_LOCK_SECONDS:10}
+  events:
+    device-status-stream-group: ${AIOT_DEVICE_EVENTS_DEVICE_STATUS_STREAM_GROUP:aiot-device-service-group}
+  device-status-buffer:
+    flush-interval-ms: ${AIOT_DEVICE_STATUS_BUFFER_FLUSH_INTERVAL_MS:1000}
+    max-batch-size: ${AIOT_DEVICE_STATUS_BUFFER_MAX_BATCH_SIZE:500}
 
 mybatis-plus:
   mapper-locations: classpath*:/mapper/**/*.xml

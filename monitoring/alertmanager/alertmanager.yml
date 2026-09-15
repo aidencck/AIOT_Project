@@ -1,0 +1,57 @@
+global:
+  resolve_timeout: 5m
+
+route:
+  group_by: ['alertname', 'service', 'team', 'severity', 'env']
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 2h
+  receiver: default
+  routes:
+    - matchers:
+        - severity="critical"
+      receiver: sre-p1
+    - matchers:
+        - team="auth"
+      receiver: auth-team
+    - matchers:
+        - team="event"
+      receiver: event-team
+    - matchers:
+        - team="platform"
+      receiver: platform-team
+
+receivers:
+  - name: default
+    webhook_configs:
+      - url: http://ops-router/webhook/default
+        send_resolved: true
+
+  - name: sre-p1
+    webhook_configs:
+      - url: http://ops-router/webhook/p1
+        send_resolved: true
+
+  - name: auth-team
+    webhook_configs:
+      - url: http://ops-router/webhook/auth
+        send_resolved: true
+
+  - name: event-team
+    webhook_configs:
+      - url: http://ops-router/webhook/event
+        send_resolved: true
+
+  - name: platform-team
+    webhook_configs:
+      - url: http://ops-router/webhook/platform
+        send_resolved: true
+
+inhibit_rules:
+  - source_matchers:
+      - severity="critical"
+    target_matchers:
+      - severity="warning"
+    equal:
+      - service
+      - team

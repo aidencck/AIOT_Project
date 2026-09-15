@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: AIoT 项目 Wiki
+    url: https://github.com/aidencck/AIOT_Project/wiki
+    about: 架构、部署、接口契约与运维文档请先查阅 Wiki
+  - name: 技术讨论
+    url: https://github.com/aidencck/AIOT_Project/discussions
+    about: 需求方案、技术选型、非缺陷类问题请走 Discussions

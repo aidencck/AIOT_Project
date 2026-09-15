@@ -1,0 +1,50 @@
+spring.config.import: optional:classpath:application-common.yml
+
+server:
+  port: 8083
+
+spring:
+  application:
+    name: aiot-home-service
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    url: jdbc:mysql://${MYSQL_HOST:localhost}:${MYSQL_PORT:3306}/${MYSQL_DB:aiot_home}?useUnicode=true&characterEncoding=utf-8&useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true
+    username: ${MYSQL_USER}
+    password: ${MYSQL_PASSWORD}
+    hikari:
+      maximum-pool-size: 8
+      minimum-idle: 2
+      connection-timeout: 30000
+      max-lifetime: 1500000
+      idle-timeout: 600000
+      keepalive-time: 120000
+      connection-test-query: SELECT 1
+  data:
+    redis:
+      # home 服务使用独立 Redis DB 隔离家庭空间缓存；host/port/password 已由 application-common.yml 统一下发
+      database: 1
+
+mybatis-plus:
+  mapper-locations: classpath*:/mapper/**/*.xml
+  global-config:
+    db-config:
+      logic-delete-field: isDeleted
+      logic-delete-value: 1
+      logic-not-delete-value: 0
+      id-type: assign_id
+  configuration:
+    map-underscore-to-camel-case: true
+    log-impl: org.apache.ibatis.logging.stdout.StdOutImpl
+
+# JWT Authentication Config
+aiot:
+  compensation:
+    home-delete:
+      scan-interval-ms: ${AIOT_HOME_DELETE_COMP_SCAN_INTERVAL_MS:10000}
+      batch-size: ${AIOT_HOME_DELETE_COMP_BATCH_SIZE:20}
+      retry-backoff-seconds: ${AIOT_HOME_DELETE_COMP_RETRY_BACKOFF_SECONDS:30}
+  security:
+    validate:
+      entries: "aiot.internal.token:24,aiot.security.jwt.secret:32"
+    jwt:
+      expiration: 86400000 # 24 hours

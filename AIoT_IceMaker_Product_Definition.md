@@ -1,3 +1,10 @@
+---
+status: current
+owner: 产研负责人
+fact_source: README.md + 产品定义
+updated_at: 2026-09-09
+---
+
 # 智能制冰机 AIoT 产品定义与规划文档 (0-1阶段)
 
 ## 1. 架构定义与战略方向
@@ -68,7 +75,7 @@
 描述了从设备端、云端到用户端的整体产品逻辑分层。
 
 ```mermaid
-%%{init: {'theme': 'base', 'themeVariables': { 'primaryColor': '#1e1e2e', 'primaryTextColor': '#cdd6f4', 'primaryBorderColor': '#89b4fa', 'lineColor': '#a6e3a1', 'secondaryColor': '#313244', 'tertiaryColor': '#45475a'}}}%%
+%%{init: {"theme":"base","themeVariables":{"primaryColor":"#1e1e2e","primaryTextColor":"#cdd6f4","primaryBorderColor":"#89b4fa","lineColor":"#a6e3a1","secondaryColor":"#313244","tertiaryColor":"#45475a"}}}%%
 graph TD
     classDef cyber fill:#1e1e2e,stroke:#89b4fa,stroke-width:2px,color:#cdd6f4,font-family:monospace;
     classDef highlight fill:#313244,stroke:#f38ba8,stroke-width:2px,color:#cdd6f4,font-family:monospace;
@@ -111,7 +118,7 @@ graph TD
 描述用户从设备开箱、配网绑定到日常使用的核心业务流程。
 
 ```mermaid
-%%{init: {'theme': 'base', 'themeVariables': { 'primaryColor': '#1e1e2e', 'primaryTextColor': '#cdd6f4', 'primaryBorderColor': '#89b4fa', 'lineColor': '#a6e3a1', 'secondaryColor': '#313244', 'tertiaryColor': '#45475a'}}}%%
+%%{init: {"theme":"base","themeVariables":{"primaryColor":"#1e1e2e","primaryTextColor":"#cdd6f4","primaryBorderColor":"#89b4fa","lineColor":"#a6e3a1","secondaryColor":"#313244","tertiaryColor":"#45475a"}}}%%
 flowchart TD
     classDef cyber fill:#1e1e2e,stroke:#89b4fa,stroke-width:2px,color:#cdd6f4,font-family:monospace;
     classDef highlight fill:#313244,stroke:#f38ba8,stroke-width:2px,color:#cdd6f4,font-family:monospace;
@@ -141,7 +148,7 @@ flowchart TD
 描述核心指令和状态数据在各节点之间的流转关系。
 
 ```mermaid
-%%{init: {'theme': 'base', 'themeVariables': { 'primaryColor': '#1e1e2e', 'primaryTextColor': '#cdd6f4', 'primaryBorderColor': '#89b4fa', 'lineColor': '#a6e3a1', 'secondaryColor': '#313244', 'tertiaryColor': '#45475a'}}}%%
+%%{init: {"theme":"base","themeVariables":{"primaryColor":"#1e1e2e","primaryTextColor":"#cdd6f4","primaryBorderColor":"#89b4fa","lineColor":"#a6e3a1","secondaryColor":"#313244","tertiaryColor":"#45475a"}}}%%
 graph LR
     classDef cyber fill:#1e1e2e,stroke:#89b4fa,stroke-width:2px,color:#cdd6f4,font-family:monospace;
     classDef highlight fill:#313244,stroke:#f38ba8,stroke-width:2px,color:#cdd6f4,font-family:monospace;
@@ -163,7 +170,7 @@ graph LR
 展示“缺水告警”这一核心场景的时序交互细节。
 
 ```mermaid
-%%{init: {'theme': 'base', 'themeVariables': { 'primaryColor': '#1e1e2e', 'primaryTextColor': '#cdd6f4', 'primaryBorderColor': '#89b4fa', 'lineColor': '#a6e3a1', 'secondaryColor': '#313244', 'tertiaryColor': '#45475a'}}}%%
+%%{init: {"theme":"base","themeVariables":{"primaryColor":"#1e1e2e","primaryTextColor":"#cdd6f4","primaryBorderColor":"#89b4fa","lineColor":"#a6e3a1","secondaryColor":"#313244","tertiaryColor":"#45475a"}}}%%
 sequenceDiagram
     autonumber
     participant Sensor as "水位传感器"

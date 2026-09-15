@@ -1,0 +1,21 @@
+[project]
+name = "aiot-training"
+version = "0.1.0"
+description = "AIoT training workspace for dataset export, eval, and finetune entrypoints"
+requires-python = ">=3.10"
+dependencies = [
+  "pydantic>=2.8.0",
+  "pyyaml>=6.0.2",
+  "redis>=5.0.8",
+  "PyMySQL>=1.1.1"
+]
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]

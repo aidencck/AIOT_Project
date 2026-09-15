@@ -1,0 +1,134 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$comment": "AIoT 拓扑单一事实源（SSOT）。服务清单/端口/依赖/infra 端口/环境暴露策略唯一在此维护；其余端（compose/k8s/文档/aiotctl）一律由 scripts/gen_topology.py 派生或 scripts/lib/common.sh 运行时读取，禁止人手二次硬编码。runtime_env 仅保留非敏感连接信息（HOST/PORT/USER），敏感凭据（MYSQL_PASSWORD/EMQX_API_PASSWORD/AIOT_INTERNAL_TOKEN/AIOT_JWT_SECRET/AIOT_EMQX_WEBHOOK_SECRET）一律不在此硬编码，由调用方环境注入（本地 shell export 或 CI GITHUB_ENV 随机生成）。",
+
+  "github": {
+    "$comment": "GitHub 协作 SSOT：仓库/owner/源码 URL 唯一在此维护。Dockerfile 的 org.opencontainers.image.source、CI 的镜像 prune filter、scripts 播种脚本的 REPO 默认值、以及 mcp_GitHub 的仓库定位，均以本段为权威来源，由 scripts/lib/common.sh github::* 函数读取，禁止二次硬编码。",
+    "repo": "aidencck/AIOT_Project",
+    "owner": "aidencck",
+    "repo_url": "https://github.com/aidencck/AIOT_Project",
+    "image_source": "https://github.com/aidencck/AIOT_Project"
+  },
+
+  "infra": {
+    "mysql": { "port": 3306 },
+    "redis": { "port": 6379 },
+    "emqx": { "port": 1883, "api_port": 18083, "ws_port": 8083 },
+    "nacos": { "port": 8848 },
+    "ollama": { "port": 11434 }
+  },
+
+  "services": [
+    {
+      "name": "aiot-gateway",
+      "dir": "aiot-gateway",
+      "port": 8080,
+      "needs_infra": false,
+      "depends_on": ["nacos"],
+      "runtime_env": {}
+    },
+    {
+      "name": "aiot-device-service",
+      "dir": "aiot-device-service",
+      "port": 8081,
+      "needs_infra": true,
+      "depends_on": ["mysql", "redis", "emqx", "nacos", "aiot-home-service"],
+      "runtime_env": {
+        "MYSQL_HOST": "127.0.0.1",
+        "MYSQL_USER": "root",
+        "REDIS_HOST": "127.0.0.1",
+        "EMQX_HOST": "127.0.0.1",
+        "EMQX_API_USER": "admin"
+      }
+    },
+    {
+      "name": "aiot-auth-service",
+      "dir": "aiot-auth-service",
+      "port": 8082,
+      "needs_infra": true,
+      "depends_on": ["mysql", "redis", "nacos", "aiot-device-service"],
+      "runtime_env": {
+        "MYSQL_HOST": "127.0.0.1",
+        "MYSQL_USER": "root",
+        "REDIS_HOST": "127.0.0.1"
+      }
+    },
+    {
+      "name": "aiot-home-service",
+      "dir": "aiot-home-service",
+      "port": 8083,
+      "needs_infra": true,
+      "depends_on": ["mysql", "redis", "nacos"],
+      "runtime_env": {
+        "MYSQL_HOST": "127.0.0.1",
+        "MYSQL_PORT": "3306",
+        "MYSQL_USER": "root",
+        "REDIS_HOST": "127.0.0.1",
+        "REDIS_PORT": "6379"
+      }
+    },
+    {
+      "name": "aiot-rule-engine",
+      "dir": "aiot-rule-engine",
+      "port": 8084,
+      "needs_infra": true,
+      "depends_on": ["redis", "nacos", "ollama"],
+      "runtime_env": {
+        "REDIS_HOST": "127.0.0.1"
+      }
+    },
+    {
+      "name": "aiot-mqtt-adapter",
+      "dir": "aiot-mqtt-adapter",
+      "port": 8085,
+      "needs_infra": false,
+      "depends_on": ["nacos", "aiot-data-parser"],
+      "runtime_env": {}
+    },
+    {
+      "name": "aiot-data-parser",
+      "dir": "aiot-data-parser",
+      "port": 8086,
+      "needs_infra": false,
+      "depends_on": ["redis", "nacos"],
+      "runtime_env": {}
+    },
+    {
+      "name": "aiot-shadow-service",
+      "dir": "aiot-shadow-service",
+      "port": 8087,
+      "needs_infra": true,
+      "depends_on": ["redis", "nacos"],
+      "runtime_env": {
+        "REDIS_HOST": "127.0.0.1"
+      }
+    }
+  ],
+
+  "environments": {
+    "dev": {
+      "expose": [
+        "mysql", "redis", "emqx", "nacos",
+        "aiot-gateway", "aiot-device-service", "aiot-auth-service", "aiot-home-service",
+        "aiot-rule-engine", "aiot-mqtt-adapter", "aiot-data-parser", "aiot-shadow-service"
+      ]
+    },
+    "staging": {
+      "expose": [
+        "mysql", "redis", "emqx", "nacos",
+        "aiot-gateway", "aiot-device-service", "aiot-auth-service", "aiot-home-service",
+        "aiot-rule-engine", "aiot-mqtt-adapter", "aiot-data-parser", "aiot-shadow-service"
+      ]
+    },
+    "prod": {
+      "expose": ["emqx", "aiot-gateway"]
+    },
+    "ci": {
+      "host_ports": {
+        "aiot-home-service": 18083,
+        "aiot-device-service": 18081,
+        "aiot-auth-service": 18082
+      }
+    }
+  }
+}

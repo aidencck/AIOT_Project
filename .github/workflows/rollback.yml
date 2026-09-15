@@ -1,0 +1,110 @@
+name: Rollback Single Service
+
+on:
+  workflow_dispatch:
+    inputs:
+      service:
+        description: "选择需要回滚的服务"
+        required: true
+        type: choice
+        options:
+          - aiot-gateway
+          - aiot-auth-service
+          - aiot-device-service
+          - aiot-home-service
+          - aiot-shadow-service
+          - aiot-rule-engine
+          - aiot-mqtt-adapter
+          - aiot-data-parser
+      target_tag:
+        description: "留空则自动读取上次发布记录回滚"
+        required: false
+        default: ""
+        type: string
+
+concurrency:
+  group: rollback-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  rollback:
+    name: Rollback Service on Server
+    runs-on: ubuntu-latest
+    steps:
+      - name: Rollback via SSH
+        uses: appleboy/ssh-action@v1.0.3
+        env:
+          SERVICE: ${{ github.event.inputs.service }}
+          TARGET_TAG: ${{ github.event.inputs.target_tag }}
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          envs: SERVICE,TARGET_TAG
+          script_stop: true
+          script: |
+            set -euo pipefail
+
+            case "${SERVICE}" in
+              aiot-gateway|aiot-auth-service|aiot-device-service|aiot-home-service|aiot-shadow-service|aiot-rule-engine|aiot-mqtt-adapter|aiot-data-parser)
+                ;;
+              *)
+                echo "Unsupported service: ${SERVICE}"
+                exit 1
+                ;;
+            esac
+
+            if [[ -z "${TARGET_TAG}" ]]; then
+              previous_image_file="/opt/aiot-cloud/scripts/.release_state/${SERVICE}.previous_image"
+              if [[ ! -f "${previous_image_file}" ]]; then
+                echo "target_tag is empty and previous image state not found: ${previous_image_file}"
+                exit 1
+              fi
+              previous_image="$(cat "${previous_image_file}")"
+              TARGET_TAG="${previous_image##*:}"
+              if [[ -z "${TARGET_TAG}" || "${TARGET_TAG}" == "${previous_image}" ]]; then
+                echo "Failed to extract tag from previous image state: ${previous_image}"
+                exit 1
+              fi
+            fi
+
+            cd /opt/aiot-cloud
+
+            echo "[Rollback] service=${SERVICE}, target_tag=${TARGET_TAG}"
+            IMAGE_TAG="${TARGET_TAG}" docker compose pull "${SERVICE}"
+            IMAGE_TAG="${TARGET_TAG}" docker compose up -d --no-deps "${SERVICE}"
+
+            container_id="$(docker compose ps -q "${SERVICE}")"
+            if [[ -z "${container_id}" ]]; then
+              echo "Failed to get container id for service ${SERVICE}"
+              exit 1
+            fi
+
+            echo "Waiting for ${SERVICE} health status to become healthy..."
+            max_attempts=30
+            attempt=1
+            while [[ ${attempt} -le ${max_attempts} ]]; do
+              health_status="$(docker inspect --format='{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "${container_id}")"
+              state_status="$(docker inspect --format='{{.State.Status}}' "${container_id}")"
+              echo "Attempt ${attempt}/${max_attempts} -> state=${state_status}, health=${health_status}"
+
+              if [[ "${health_status}" == "healthy" ]]; then
+                echo "Rollback succeeded: ${SERVICE} is healthy on tag ${TARGET_TAG}"
+                exit 0
+              fi
+
+              if [[ "${health_status}" == "unhealthy" || "${state_status}" == "exited" || "${state_status}" == "dead" ]]; then
+                echo "Rollback failed: ${SERVICE} is unhealthy or not running."
+                docker compose ps "${SERVICE}" || true
+                docker logs --tail 200 "${container_id}" || true
+                exit 1
+              fi
+
+              attempt=$((attempt + 1))
+              sleep 10
+            done
+
+            echo "Rollback failed: health check timeout for ${SERVICE}"
+            docker compose ps "${SERVICE}" || true
+            docker logs --tail 200 "${container_id}" || true
+            exit 1

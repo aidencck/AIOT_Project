@@ -1,0 +1,147 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    env: local
+    cluster: aiot-compose
+    region: cn-local
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: ["aiot-alertmanager:9093"]
+
+rule_files:
+  - /etc/prometheus/alerts/*.yml
+  - /etc/prometheus/rules/*.yml
+
+scrape_configs:
+  - job_name: "prometheus"
+    static_configs:
+      - targets: ["aiot-prometheus:9090"]
+        labels:
+          service: "aiot-prometheus"
+          domain: "observability"
+
+  - job_name: "loki"
+    static_configs:
+      - targets: ["aiot-loki:3100"]
+        labels:
+          service: "aiot-loki"
+          domain: "observability"
+
+  - job_name: "tempo"
+    static_configs:
+      - targets: ["aiot-tempo:3200"]
+        labels:
+          service: "aiot-tempo"
+          domain: "observability"
+
+  - job_name: "mysql"
+    static_configs:
+      - targets: ["aiot-mysqld-exporter:9104"]
+        labels:
+          service: "aiot-mysql"
+          domain: "middleware"
+
+  - job_name: "redis"
+    static_configs:
+      - targets: ["aiot-redis-exporter:9121"]
+        labels:
+          service: "aiot-redis"
+          domain: "middleware"
+
+  - job_name: "emqx"
+    metrics_path: "/api/v5/prometheus/stats"
+    static_configs:
+      - targets: ["aiot-emqx:18083"]
+        labels:
+          service: "aiot-emqx"
+          domain: "middleware"
+
+  - job_name: "nacos"
+    metrics_path: "/nacos/actuator/prometheus"
+    static_configs:
+      - targets: ["aiot-nacos:8848"]
+        labels:
+          service: "aiot-nacos"
+          domain: "middleware"
+
+  - job_name: "alertmanager"
+    static_configs:
+      - targets: ["aiot-alertmanager:9093"]
+        labels:
+          service: "aiot-alertmanager"
+          domain: "observability"
+
+  - job_name: "cadvisor"
+    metrics_path: "/metrics"
+    static_configs:
+      - targets: ["aiot-cadvisor:8080"]
+        labels:
+          service: "aiot-cadvisor"
+          domain: "observability"
+
+  - job_name: "aiot-gateway"
+    metrics_path: "/actuator/prometheus"
+    static_configs:
+      - targets: ["aiot-gateway:8080"]
+        labels:
+          service: "aiot-gateway"
+          domain: "gateway"
+
+  - job_name: "aiot-auth-service"
+    metrics_path: "/actuator/prometheus"
+    static_configs:
+      - targets: ["aiot-auth-service:8082"]
+        labels:
+          service: "aiot-auth-service"
+          domain: "auth"
+
+  - job_name: "aiot-device-service"
+    metrics_path: "/actuator/prometheus"
+    static_configs:
+      - targets: ["aiot-device-service:8081"]
+        labels:
+          service: "aiot-device-service"
+          domain: "device"
+
+  - job_name: "aiot-home-service"
+    metrics_path: "/actuator/prometheus"
+    static_configs:
+      - targets: ["aiot-home-service:8083"]
+        labels:
+          service: "aiot-home-service"
+          domain: "home"
+
+  - job_name: "aiot-rule-engine"
+    metrics_path: "/actuator/prometheus"
+    static_configs:
+      - targets: ["aiot-rule-engine:8084"]
+        labels:
+          service: "aiot-rule-engine"
+          domain: "rule"
+
+  - job_name: "aiot-shadow-service"
+    metrics_path: "/actuator/prometheus"
+    static_configs:
+      - targets: ["aiot-shadow-service:8087"]
+        labels:
+          service: "aiot-shadow-service"
+          domain: "shadow"
+
+  - job_name: "aiot-mqtt-adapter"
+    metrics_path: "/actuator/prometheus"
+    static_configs:
+      - targets: ["aiot-mqtt-adapter:8085"]
+        labels:
+          service: "aiot-mqtt-adapter"
+          domain: "adapter"
+
+  - job_name: "aiot-data-parser"
+    metrics_path: "/actuator/prometheus"
+    static_configs:
+      - targets: ["aiot-data-parser:8086"]
+        labels:
+          service: "aiot-data-parser"
+          domain: "parser"

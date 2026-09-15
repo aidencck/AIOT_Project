@@ -1,3 +1,10 @@
+---
+status: archived
+owner: 架构组
+fact_source: 代码 + 专项文档
+updated_at: 2026-09-09
+---
+
 # AIoT 后端架构设计文档
 
 ## 1. 架构设计核心定义

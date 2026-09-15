@@ -1,0 +1,49 @@
+version: '3.8'
+
+services:
+
+  mysql:
+    ports:
+      - "3306:3306"
+
+  redis:
+    ports:
+      - "6379:6379"
+
+  emqx:
+    ports:
+      - "1883:1883"
+      - "8088:8083"
+      - "18083:18083"
+
+  aiot-gateway:
+    ports:
+      - "8080:8080"
+
+  aiot-device-service:
+    ports:
+      - "8081:8081"
+
+  aiot-auth-service:
+    ports:
+      - "8082:8082"
+
+  aiot-home-service:
+    ports:
+      - "8083:8083"
+
+  aiot-rule-engine:
+    ports:
+      - "8084:8084"
+
+  aiot-mqtt-adapter:
+    ports:
+      - "8085:8085"
+
+  aiot-data-parser:
+    ports:
+      - "8086:8086"
+
+  aiot-shadow-service:
+    ports:
+      - "8087:8087"

@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+cd "$ROOT_DIR"
+
+echo "Running layering check..."
+bash scripts/check_layering.sh
+
+if command -v gitleaks >/dev/null 2>&1; then
+  echo "Running gitleaks secret scan..."
+  gitleaks detect --source . --redact --no-git
+else
+  echo "gitleaks 未安装，跳过密钥扫描（远端 CI 仍会拦截）"
+fi

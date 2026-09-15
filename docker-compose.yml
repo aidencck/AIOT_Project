@@ -1,275 +1,668 @@
+# 一、Docker全链路不变/可变内容梳理（镜像构建→容器运行全维度）
+# 【核心划分逻辑】不变内容是构建后固化无法修改的静态资产，可变内容是运行时可动态配置/覆写的动态配置，核心边界：
+# - 不可变资产（镜像构建阶段固化，build后无法修改，需重新构建镜像更新）：
+#···1. 基础系统层：宿主机内核之上的容器根文件系统，基础镜像自带的操作系统内核模块、系统库、基础命令
+#···2. 业务代码与依赖：编译打包后的业务二进制包、Jar/War包、Python/Node.js代码、第三方依赖包，构建后固化在镜像层
+#···3. 镜像内置默认配置：Dockerfile通过ENV设置的基础环境变量、COPY进镜像的默认配置文件，仅能被运行时配置覆写，无法在运行时修改镜像本身
+#···4. 镜像启动默认指令：Dockerfile定义的ENTRYPOINT基础入口指令，构建后固化，仅可通过Compose command字段覆写传入参数，无法修改入口逻辑
+#···5. 镜像暴露端口声明：Dockerfile的EXPOSE指令仅为镜像文档化声明，构建后固化，运行时可通过ports映射修改实际暴露端口
+#
+# - 可变配置（容器运行阶段动态注入/挂载，无需重新构建镜像，仅需重启容器即可生效）：
+#···1. 环境变量：Compose的environment/env_file注入的环境变量，优先级高于Dockerfile的ENV，可随时修改重启生效
+#···2. 挂载配置文件：宿主机挂载的业务配置文件（如prometheus.yml、application.properties），可直接修改宿主机文件，重启容器后加载，无需修改镜像
+#···3. 启动命令参数：Compose的command字段传入的ENTRYPOINT参数，可动态调整启动参数，如开启调试模式、修改性能配置
+#···4. 网络存储配置：Compose定义的网络组、持久化卷、端口映射，可动态调整容器组网、存储挂载路径、宿主机暴露端口，不影响镜像内容
+#···5. 资源限制配置：容器启动时指定的CPU、内存配额，通过cgroup动态调整，无需修改镜像，可根据部署环境弹性配置
+#
+# - 开发过程中镜像更新触发条件（仅当不可变资产变更时需要重新构建镜像，可变配置修改无需构建）：
+#···1. 业务代码迭代：业务逻辑、功能模块更新，需要重新编译打包代码，构建新镜像
+#···2. 基础镜像升级：基础系统漏洞修复、系统库版本升级，需要重新构建镜像更新基础层
+#···3. 内置依赖更新：第三方依赖包版本升级、新增依赖，需要重新构建镜像打包新依赖
+#···4. 镜像内置配置修改：需要修改Dockerfile固化的ENV、默认配置文件，必须重新构建镜像
+#···5. 启动逻辑变更：需要修改ENTRYPOINT基础入口逻辑，必须重新构建镜像，仅修改参数无需构建
+
+# 二、多物理机跨节点部署微服务：网络通信核心配置方案
+# 【核心架构逻辑】单节点Compose集群扩展为多物理机分布式集群时，网络通信需解决跨节点服务发现、容器组网、安全通信三大核心问题，所有配置均为运行时动态可变配置，无需修改镜像
+# - 多节点部署核心前提：所有物理机需在同一局域网内，网络互通，防火墙开放集群通信端口，部署统一的容器编排支撑组件
+# 多节点网络通信方案选型与配置：
+# 方案1：Docker Swarm原生集群（零第三方依赖，兼容原有Compose配置）
+#···核心配置修改：将原有单节点bridge网络替换为Swarm overlay网络，实现跨物理机容器扁平组网
+#···网络配置示例：
+#···networks:
+#···  aiot-net:
+#···    driver: overlay # 替换原bridge驱动，创建跨节点可路由的虚拟网络
+#···    attachable: true # 允许未加入swarm服务栈的独立容器接入集群网络
+#···    subnet: 10.0.0.0/16 # 自定义集群子网，避免与宿主机局域网冲突
+#···适用场景：中小规模集群，原有Compose配置无需大量改造即可快速扩容，服务间通过服务名直接通信，Swarm内置DNS解析跨节点容器IP
+#···跨节点服务发现：Swarm内置的Ingress DNS组件，自动解析所有节点上的容器服务名，原有代码中服务地址（如aiot-mysql:3306）完全无需修改
+#
+# 方案2：Kubernetes集群部署（企业级大规模集群，适配微服务拆分场景）
+#···核心配置修改：将Compose配置转换为K8s Deployment+Service资源，通过Service实现跨节点服务负载均衡与通信
+#···核心网络组件：使用CNI网络插件（Flannel/Calico）创建跨节点容器网络，ClusterIP类型的Service自动提供集群内服务发现
+#···服务通信配置：原有代码中的服务地址需适配K8s的Service域名格式，如aiot-mysql.default.svc.cluster.local，实现跨命名空间服务通信
+#···高级网络能力：支持NetworkPolicy实现微服务间网络访问控制，仅允许授权服务互相通信，提升集群安全性
+#
+# 方案3：第三方跨节点网络组件（兼容原生Docker，无需改造集群架构）
+#···核心配置：使用Calico、Weave Net等第三方CNI插件，为所有物理机上的Docker容器创建跨节点虚拟网络
+#···配置示例：安装Calico后，无需修改原有Compose的bridge网络配置，Calico自动为跨节点容器分配可路由IP
+#···适用场景：不愿迁移到Swarm/K8s的存量集群，改造量小，同时支持大规模节点扩容，网络性能优于原生overlay网络
+#
+# 多节点网络通信关键配置项（所有方案通用）：
+# 1. 服务地址统一配置：所有微服务的依赖服务地址，必须通过环境变量注入，禁止硬编码宿主机IP，便于跨节点迁移
+#···示例：原有代码中MYSQL_HOST: aiot-mysql保持不变，通过集群DNS自动解析到任意节点上的mysql服务IP
+# 2. 端口暴露策略：跨节点通信的服务仅需暴露集群内部端口，无需在所有宿主机上暴露公网端口，仅入口网关（aiot-gateway）暴露外部访问端口
+#···安全配置：仅在部署网关的物理机上开放8080端口，所有微服务端口仅对集群子网开放，避免公网直接访问
+# 3. 集群通信防火墙规则：所有物理机需开放集群网络所需端口，如Swarm需要开放2377/tcp（集群管理）、7946/tcp/udp（节点发现）、4789/udp（overlay网络数据）
+# 4. 负载均衡配置：跨节点部署的多副本微服务，需在集群层面配置负载均衡，避免请求仅转发到单个节点的实例，Swarm/K8s均内置该能力
+# 5. 跨节点服务依赖配置：所有微服务的depends_on健康检查逻辑保持不变，集群编排组件会自动等待跨节点的依赖服务就绪后再启动当前服务
 version: '3.8'
 
-# ==========================================
-# 网络配置
-# ==========================================
 networks:
   aiot-net:
     driver: bridge
-    name: aiot-net
 
-# ==========================================
-# 存储卷配置
-# ==========================================
 volumes:
   mysql-data:
   redis-data:
-  nacos-data:
   emqx-data:
+  nacos-data:
+  prometheus-data:
+  grafana-data:
+  loki-data:
+  tempo-data:
+  promtail-positions:
+  ollama-data:
 
 services:
-  # ==========================================
-  # 第一部分：基础中间件 (Infrastructure)
-  # ==========================================
+
   mysql:
     image: mysql:8.0
     container_name: aiot-mysql
     restart: unless-stopped
-    environment:
-      MYSQL_ROOT_PASSWORD: ${MYSQL_PASSWORD:-root}
-      MYSQL_DATABASE: aiot_cloud
-      TZ: Asia/Shanghai
+    networks: [aiot-net]
+    # prod 路径请关闭此端口暴露
     ports:
       - "3306:3306"
+    # 容器进程环境变量，mysql镜像启动时自动读取初始化
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_PASSWORD} # 根密码从根.env注入，用于数据库初始化
+      MYSQL_DATABASE: aiot_cloud # 硬编码指定默认库名
+      TZ: Asia/Shanghai # 时区配置，容器内系统时间同步
     volumes:
-      - mysql-data:/var/lib/mysql
-    networks:
-      - aiot-net
+      - mysql-data:/var/lib/mysql # 持久化数据卷挂载，容器删除后数据保留
+      - ./docker/mysql/init:/docker-entrypoint-initdb.d:ro # 初始化脚本挂载，首次启动自动执行
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-proot"]
+      # 健康检查使用容器内环境变量，转义$${}避免compose提前解析，容器启动后执行
+      test: ["CMD-SHELL", "mysqladmin ping -h localhost -uroot -p$${MYSQL_ROOT_PASSWORD} || exit 1"]
       interval: 15s
       timeout: 5s
       retries: 5
       start_period: 30s
-    deploy:
-      resources:
-        limits:
-          cpus: '1.0'
-          memory: 1G
-        reservations:
-          cpus: '0.2'
-          memory: 512M
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "100m"
-        max-file: "3"
+
+  mysqld-exporter:
+    image: prom/mysqld-exporter:v0.15.1
+    container_name: aiot-mysqld-exporter
+    profiles: ["observability"]
+    restart: unless-stopped
+    networks: [aiot-net]
+    # v0.15.0 起 DATA_SOURCE_NAME 已移除，改用 CLI 参数（username 支持 user:password 语法）
+    command:
+      - "--mysqld.username=aiot_app:${MYSQL_PASSWORD}"
+      - "--mysqld.address=aiot-mysql:3306"
+    depends_on:
+      mysql:
+        condition: service_healthy
 
   redis:
     image: redis:7.0-alpine
     container_name: aiot-redis
     restart: unless-stopped
+    networks: [aiot-net]
     ports:
       - "6379:6379"
     volumes:
-      - redis-data:/data
-    networks:
-      - aiot-net
+      - redis-data:/data # 持久化rdb/aof文件存储
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
       timeout: 5s
       retries: 5
-    deploy:
-      resources:
-        limits:
-          cpus: '0.5'
-          memory: 512M
-        reservations:
-          cpus: '0.1'
-          memory: 256M
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "100m"
-        max-file: "3"
 
-  nacos:
-    image: nacos/nacos-server:v2.2.3
-    platform: linux/amd64
-    container_name: aiot-nacos
+  redis-exporter:
+    image: oliver006/redis_exporter:v1.62.0
+    container_name: aiot-redis-exporter
+    profiles: ["observability"]
     restart: unless-stopped
+    networks: [aiot-net]
     environment:
-      - PREFER_HOST_MODE=hostname
-      - MODE=standalone
-      - TZ=Asia/Shanghai
-    ports:
-      - "8848:8848"
-      - "9848:9848"
-    volumes:
-      - nacos-data:/home/nacos/data
-    networks:
-      - aiot-net
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8848/nacos/v1/console/health/readiness"]
-      interval: 20s
-      timeout: 5s
-      retries: 5
-      start_period: 40s
-    deploy:
-      resources:
-        limits:
-          cpus: '1.0'
-          memory: 1G
-        reservations:
-          cpus: '0.2'
-          memory: 512M
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "100m"
-        max-file: "3"
+      REDIS_ADDR: "redis://aiot-redis:6379"
+    depends_on:
+      redis:
+        condition: service_healthy
 
   emqx:
     image: emqx:5.3.0
     container_name: aiot-emqx
     restart: unless-stopped
+    networks: [aiot-net]
     ports:
-      - "1883:1883"   # MQTT TCP
-      - "8083:8083"   # MQTT WebSocket
-      - "18083:18083" # EMQX Dashboard
+      - "1883:1883"
+      - "18083:18083"
+    # emqx镜像支持环境变量覆写配置文件，启动时自动替换配置
+    environment:
+      EMQX_DASHBOARD__DEFAULT_USERNAME: ${EMQX_API_USER:-admin} # 带默认值的控制台账号
+      EMQX_DASHBOARD__DEFAULT_PASSWORD: ${EMQX_API_PASSWORD} # 控制台密码从根.env注入
+      AUTH_WEBHOOK_URL: ${AUTH_WEBHOOK_URL:-http://aiot-auth-service:8082/api/v1/emqx/webhook} # 设备上下线 Webhook 目标
     volumes:
-      - emqx-data:/opt/emqx/data
-    networks:
-      - aiot-net
+      - emqx-data:/opt/emqx/data # 持久化消息数据与配置
+      - ./emqx-config:/opt/emqx/etc/emqx-config:ro # EMQX 数据桥接/规则配置（webhook 桥接 + 规则 SQL）
     healthcheck:
-      test: ["CMD", "/opt/emqx/bin/emqx", "ping"]
+      test: ["CMD", "emqx", "ping"]
       interval: 15s
       timeout: 5s
       retries: 5
       start_period: 30s
-    deploy:
-      resources:
-        limits:
-          cpus: '1.0'
-          memory: 1G
-        reservations:
-          cpus: '0.2'
-          memory: 512M
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "100m"
-        max-file: "3"
 
-  # ==========================================
-  # 第二部分：AIoT 微服务 (Microservices)
-  # 统一拉取 GHCR 镜像，不再使用本地构建
-  # ==========================================
-  aiot-gateway:
-    image: ghcr.io/aidencck/aiot-java/aiot-gateway:main
-    container_name: aiot-gateway
+  nacos:
+    image: nacos/nacos-server:v2.3.2-slim
+    container_name: aiot-nacos
     restart: unless-stopped
+    networks: [aiot-net]
+    ports:
+      - "8848:8848"
+    environment:
+      MODE: standalone
+      NACOS_AUTH_ENABLE: "false"
+      JVM_XMS: 512m
+      JVM_XMX: 512m
+      JVM_XMN: 256m
+      TZ: Asia/Shanghai
+      management.endpoints.web.exposure.include: prometheus,health,info
+    volumes:
+      - nacos-data:/home/nacos/data
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8848/nacos/v1/console/health/readiness"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 40s
+
+  ollama:
+    image: ollama/ollama:latest
+    container_name: aiot-ollama
+    restart: unless-stopped
+    networks: [aiot-net]
+    # 本地调试可访问；prod 路径请关闭此端口暴露
+    ports:
+      - "11434:11434"
+    environment:
+      OLLAMA_KEEP_ALIVE: 24h
+      OLLAMA_NUM_PARALLEL: "1"
+    volumes:
+      - ollama-data:/root/.ollama
+    healthcheck:
+      test: ["CMD-SHELL", "ollama list >/dev/null 2>&1 || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  ollama-init:
+    image: ollama/ollama:latest
+    container_name: aiot-ollama-init
+    restart: "no"
+    networks: [aiot-net]
+    environment:
+      OLLAMA_HOST: http://ollama:11434
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen2.5:1.5b}
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - 'until ollama list >/dev/null 2>&1; do sleep 2; done; ollama pull "$${OLLAMA_MODEL:-qwen2.5:1.5b}"'
+    depends_on:
+      ollama:
+        condition: service_healthy
+
+  aiot-gateway:
+    image: ghcr.io/aidencck/aiot-java/aiot-gateway:${IMAGE_TAG:-main} # 镜像tag从根.env注入，默认main分支
+    build:
+      context: ./aiot-gateway
+      dockerfile: ../Dockerfile
+    container_name: aiot-gateway
+    restart: on-failure:5
+    networks: [aiot-net]
+    # prod 路径请关闭此端口暴露（或由 prod overlay 控制）
     ports:
       - "8080:8080"
+    # 加载环境专属配置文件，所有Java业务服务通用，补充内联环境变量
+    env_file:
+      - ./compose/env/${AIOT_ENV:-dev}/runtime.env # AIOT_ENV从根.env注入，切换dev/prod环境配置
+    # 内联环境变量，Spring Boot应用启动时自动读取，覆盖配置文件默认值
     environment:
-      - TZ=Asia/Shanghai
-      - SERVER_PORT=8080
-      - JAVA_OPTS=-Xms256m -Xmx256m
-      - NACOS_ADDR=${NACOS_ADDR:-aiot-nacos:8848}
-    depends_on:
-      nacos:
-        condition: service_healthy
-    networks:
-      - aiot-net
+      JAVA_OPTS: ${JAVA_OPTS_GATEWAY:- -Xms256m -Xmx256m} # JVM堆内存配置，支持根.env覆写
+      SERVER_PORT: 8080 # 服务端口硬编码，与ports映射一致
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8080/actuator/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 40s
-    deploy:
-      resources:
-        limits:
-          cpus: '1.0'
-          memory: 512M
-        reservations:
-          cpus: '0.1'
-          memory: 256M
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "100m"
-        max-file: "3"
+      test: ["CMD", "curl", "-fsS", "http://localhost:8080/actuator/health/readiness"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+  # 后台管理前端：nginx 静态托管 + /api 反向代理到网关（与 Java 服务矩阵解耦，独立构建镜像）
+  aiot-admin-web:
+    image: ghcr.io/aidencck/aiot-java/aiot-admin-web:${IMAGE_TAG:-main}
+    build:
+      context: ./aiot-admin-web
+      dockerfile: Dockerfile
+    container_name: aiot-admin-web
+    restart: on-failure:5
+    networks: [aiot-net]
+    ports:
+      - "8090:8080"
+    environment:
+      ADMIN_API_UPSTREAM: aiot-gateway:8080
+      ADMIN_API_RESOLVER: 127.0.0.11
+    depends_on:
+      aiot-gateway:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8080/"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
 
   aiot-device-service:
-    image: ghcr.io/aidencck/aiot-java/aiot-device-service:main
+    image: ghcr.io/aidencck/aiot-java/aiot-device-service:${IMAGE_TAG:-main}
+    build:
+      context: ./aiot-device-service
+      dockerfile: ../Dockerfile
     container_name: aiot-device-service
-    restart: unless-stopped
+    restart: on-failure:5
+    networks: [aiot-net]
+    # prod 路径请关闭此端口暴露
     ports:
       - "8081:8081"
+    env_file:
+      - ./compose/env/${AIOT_ENV:-dev}/runtime.env
     environment:
-      - TZ=Asia/Shanghai
-      - SERVER_PORT=8081
-      - JAVA_OPTS=-Xms256m -Xmx256m
-      - NACOS_ADDR=${NACOS_ADDR:-aiot-nacos:8848}
-      - MYSQL_HOST=${MYSQL_HOST:-aiot-mysql:3306}
-      - MYSQL_PASSWORD=${MYSQL_PASSWORD:-root}
-      - REDIS_HOST=${REDIS_HOST:-aiot-redis}
-      - EMQX_HOST=${EMQX_HOST:-aiot-emqx}
+      JAVA_OPTS: ${JAVA_OPTS_DEVICE:- -Xms256m -Xmx256m}
+      SERVER_PORT: 8081
+      MYSQL_HOST: aiot-mysql
+      MYSQL_PORT: 3306
+      MYSQL_USER: aiot_app
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+      MYSQL_DB: aiot_cloud
+      AIOT_HOME_SERVICE_URL: lb://aiot-home-service # Spring Cloud LoadBalancer服务地址，使用compose服务名
+      AIOT_RULE_SERVICE_URL: lb://aiot-rule-engine
+      AIOT_DATA_PARSER_BASE_URL: lb://aiot-data-parser
     depends_on:
-      nacos:
-        condition: service_healthy
+      # 服务启动顺序控制，依赖上游服务健康检查通过才启动当前服务
       mysql:
         condition: service_healthy
       redis:
         condition: service_healthy
-    networks:
-      - aiot-net
+      emqx:
+        condition: service_healthy
+      aiot-home-service:
+        condition: service_healthy
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8081/actuator/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 40s
-    deploy:
-      resources:
-        limits:
-          cpus: '1.0'
-          memory: 512M
-        reservations:
-          cpus: '0.1'
-          memory: 256M
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "100m"
-        max-file: "3"
+      test: ["CMD", "curl", "-fsS", "http://localhost:8081/actuator/health/readiness"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
 
   aiot-auth-service:
-    image: ghcr.io/aidencck/aiot-java/aiot-auth-service:main
+    image: ghcr.io/aidencck/aiot-java/aiot-auth-service:${IMAGE_TAG:-main}
+    build:
+      context: ./aiot-auth-service
+      dockerfile: ../Dockerfile
     container_name: aiot-auth-service
-    restart: unless-stopped
+    restart: on-failure:5
+    networks: [aiot-net]
+    # prod 路径请关闭此端口暴露
     ports:
       - "8082:8082"
+    env_file:
+      - ./compose/env/${AIOT_ENV:-dev}/runtime.env
     environment:
-      - TZ=Asia/Shanghai
-      - SERVER_PORT=8082
-      - JAVA_OPTS=-Xms256m -Xmx256m
-      - NACOS_ADDR=${NACOS_ADDR:-aiot-nacos:8848}
-      - MYSQL_HOST=${MYSQL_HOST:-aiot-mysql:3306}
-      - MYSQL_PASSWORD=${MYSQL_PASSWORD:-root}
-      - REDIS_HOST=${REDIS_HOST:-aiot-redis}
+      JAVA_OPTS: ${JAVA_OPTS_AUTH:- -Xms256m -Xmx256m}
+      SERVER_PORT: 8082
+      MYSQL_HOST: aiot-mysql
+      MYSQL_PORT: 3306
+      MYSQL_USER: aiot_app
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+      MYSQL_DB: aiot_cloud
+      AIOT_DEVICE_SERVICE_URL: lb://aiot-device-service
     depends_on:
-      nacos:
-        condition: service_healthy
       mysql:
         condition: service_healthy
       redis:
         condition: service_healthy
-    networks:
-      - aiot-net
+      aiot-device-service:
+        condition: service_healthy
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8082/actuator/health"]
-      interval: 30s
-      timeout: 10s
+      test: ["CMD", "curl", "-fsS", "http://localhost:8082/actuator/health/readiness"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+  aiot-home-service:
+    image: ghcr.io/aidencck/aiot-java/aiot-home-service:${IMAGE_TAG:-main}
+    build:
+      context: ./aiot-home-service
+      dockerfile: ../Dockerfile
+    container_name: aiot-home-service
+    restart: on-failure:5
+    networks: [aiot-net]
+    # prod 路径请关闭此端口暴露
+    ports:
+      - "8083:8083"
+    env_file:
+      - ./compose/env/${AIOT_ENV:-dev}/runtime.env
+    environment:
+      JAVA_OPTS: ${JAVA_OPTS_HOME:- -Xms256m -Xmx256m}
+      SERVER_PORT: 8083
+      MYSQL_HOST: aiot-mysql
+      MYSQL_PORT: 3306
+      MYSQL_USER: aiot_app
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+      MYSQL_DB: aiot_home
+      AIOT_DEVICE_SERVICE_URL: lb://aiot-device-service
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8083/actuator/health/readiness"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+  aiot-rule-engine:
+    image: ghcr.io/aidencck/aiot-java/aiot-rule-engine:${IMAGE_TAG:-main}
+    build:
+      context: ./aiot-rule-engine
+      dockerfile: ../Dockerfile
+    container_name: aiot-rule-engine
+    restart: on-failure:5
+    networks: [aiot-net]
+    # prod 路径请关闭此端口暴露
+    ports:
+      - "8084:8084"
+    env_file:
+      - ./compose/env/${AIOT_ENV:-dev}/runtime.env
+    environment:
+      JAVA_OPTS: ${JAVA_OPTS_RULE:- -Xms256m -Xmx256m}
+      SERVER_PORT: 8084
+      AIOT_DEVICE_SERVICE_URL: lb://aiot-device-service
+      AIOT_DATA_PARSER_BASE_URL: lb://aiot-data-parser
+      AI_LLM_ENABLED: ${AI_LLM_ENABLED:-true}
+      AI_LLM_BASE_URL: ${AI_LLM_BASE_URL:-http://ollama:11434}
+      AI_LLM_API_KEY: ${AI_LLM_API_KEY:-ollama}
+      AI_LLM_MODEL: ${AI_LLM_MODEL:-qwen2.5:1.5b}
+    depends_on:
+      redis:
+        condition: service_healthy
+      ollama:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8084/actuator/health/readiness"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+  aiot-mqtt-adapter:
+    image: ghcr.io/aidencck/aiot-java/aiot-mqtt-adapter:${IMAGE_TAG:-main}
+    build:
+      context: ./aiot-mqtt-adapter
+      dockerfile: ../Dockerfile
+    container_name: aiot-mqtt-adapter
+    restart: on-failure:5
+    networks: [aiot-net]
+    # prod 路径请关闭此端口暴露
+    ports:
+      - "8085:8085"
+    env_file:
+      - ./compose/env/${AIOT_ENV:-dev}/runtime.env
+    environment:
+      JAVA_OPTS: ${JAVA_OPTS_MQTT:- -Xms256m -Xmx256m}
+      SERVER_PORT: 8085
+      # Spring Boot自动配置排除，硬编码关闭数据源自动装配
+      SPRING_AUTOCONFIGURE_EXCLUDE: org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration,org.mybatis.spring.boot.autoconfigure.MybatisAutoConfiguration
+      AIOT_DATA_PARSER_BASE_URL: lb://aiot-data-parser
+    depends_on:
+      aiot-data-parser:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8085/actuator/health/readiness"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+  aiot-data-parser:
+    image: ghcr.io/aidencck/aiot-java/aiot-data-parser:${IMAGE_TAG:-main}
+    build:
+      context: ./aiot-data-parser
+      dockerfile: ../Dockerfile
+    container_name: aiot-data-parser
+    restart: on-failure:5
+    networks: [aiot-net]
+    # prod 路径请关闭此端口暴露
+    ports:
+      - "8086:8086"
+    env_file:
+      - ./compose/env/${AIOT_ENV:-dev}/runtime.env
+    environment:
+      JAVA_OPTS: ${JAVA_OPTS_PARSER:- -Xms256m -Xmx256m}
+      SERVER_PORT: 8086
+      SPRING_AUTOCONFIGURE_EXCLUDE: org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration,org.mybatis.spring.boot.autoconfigure.MybatisAutoConfiguration
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8086/actuator/health/readiness"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+  aiot-shadow-service:
+    image: ghcr.io/aidencck/aiot-java/aiot-shadow-service:${IMAGE_TAG:-main}
+    build:
+      context: ./aiot-shadow-service
+      dockerfile: ../Dockerfile
+    container_name: aiot-shadow-service
+    restart: on-failure:5
+    networks: [aiot-net]
+    # prod 路径请关闭此端口暴露
+    ports:
+      - "8087:8087"
+    env_file:
+      - ./compose/env/${AIOT_ENV:-dev}/runtime.env
+    environment:
+      JAVA_OPTS: ${JAVA_OPTS_SHADOW:- -Xms256m -Xmx256m}
+      SERVER_PORT: 8087
+      SPRING_AUTOCONFIGURE_EXCLUDE: org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration,org.mybatis.spring.boot.autoconfigure.MybatisAutoConfiguration
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8087/actuator/health/readiness"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+  aiot-edge-agent:
+    build:
+      context: ./edge
+      dockerfile: aiot-edge-agent/Dockerfile
+    image: ghcr.io/aidencck/aiot-java/aiot-edge-agent:${IMAGE_TAG:-main}
+    container_name: aiot-edge-agent
+    # 端侧 CLI 代理，按需以 `docker compose --profile edge run --rm aiot-edge-agent < events.jsonl` 使用
+    profiles: ["edge"]
+    networks: [aiot-net]
+    stdin_open: true
+    tty: true
+    environment:
+      AIOT_LLM_BASE_URL: ${AIOT_LLM_BASE_URL:-http://ollama:11434/v1}
+      AIOT_LLM_API_KEY: ${AIOT_LLM_API_KEY:-ollama}
+      AIOT_LLM_MODEL: ${OLLAMA_MODEL:-qwen2.5:1.5b}
+    depends_on:
+      ollama:
+        condition: service_healthy
+
+  prometheus:
+    image: prom/prometheus:v2.54.1
+    container_name: aiot-prometheus
+    profiles: ["observability"] # compose配置隔离，仅指定--profile observability时启动
+    restart: unless-stopped
+    networks: [aiot-net]
+    ports:
+      - "9090:9090"
+    volumes:
+      - prometheus-data:/prometheus # 持久化时序数据
+      # 宿主机配置文件挂载，覆盖镜像默认配置，prometheus启动时加载
+      - ./monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./monitoring/prometheus/alerts:/etc/prometheus/alerts:ro
+      - ./monitoring/prometheus/rules:/etc/prometheus/rules:ro
+    # 启动命令覆写，新增启动参数，镜像启动时执行
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.enable-lifecycle'
+      - '--storage.tsdb.retention.time=15d'
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:9090/-/healthy"]
+      interval: 15s
+      timeout: 5s
       retries: 3
-      start_period: 40s
-    deploy:
-      resources:
-        limits:
-          cpus: '1.0'
-          memory: 512M
-        reservations:
-          cpus: '0.1'
-          memory: 256M
+
+  alertmanager:
+    image: prom/alertmanager:v0.27.0
+    container_name: aiot-alertmanager
+    profiles: ["observability"]
+    restart: unless-stopped
+    networks: [aiot-net]
+    ports:
+      - "9093:9093"
+    volumes:
+      - ./monitoring/alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:9093/-/healthy"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+
+  ops-router:
+    image: ealen/echo-server:0.9.2
+    container_name: aiot-ops-router
+    profiles: ["observability"]
+    restart: unless-stopped
+    networks: [aiot-net]
+    ports:
+      - "18080:80"
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost/"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+
+  loki:
+    image: grafana/loki:3.1.1
+    container_name: aiot-loki
+    profiles: ["observability"]
+    restart: unless-stopped
+    networks: [aiot-net]
+    ports:
+      - "3100:3100"
+    volumes:
+      - loki-data:/loki
+      - ./monitoring/loki/loki.yml:/etc/loki/loki.yml:ro
+    command: -config.file=/etc/loki/loki.yml
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:3100/ready"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+
+  promtail:
+    image: grafana/promtail:3.1.1
+    container_name: aiot-promtail
+    profiles: ["observability"]
+    restart: unless-stopped
+    user: "0:0" # 容器运行用户指定，root权限读取docker日志
+    networks: [aiot-net]
+    volumes:
+      - promtail-positions:/positions # 持久化日志采集位置，避免重启重复采集
+      - ./monitoring/promtail/promtail.yml:/etc/promtail/promtail.yml:ro
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro # 挂载宿主机容器日志目录
+      - /var/run/docker.sock:/var/run/docker.sock:ro # 挂载docker套接字，自动发现容器
+    command: -config.file=/etc/promtail/promtail.yml
+    depends_on:
+      loki:
+        condition: service_healthy
+
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:v0.47.2
+    container_name: aiot-cadvisor
+    profiles: ["observability"]
+    restart: unless-stopped
+    networks: [aiot-net]
+    expose:
+      - "8080"
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker:/var/lib/docker:ro
+      - /dev/disk/:/dev/disk:ro
+
+  tempo:
+    image: grafana/tempo:2.6.1
+    container_name: aiot-tempo
+    profiles: ["observability"]
+    restart: unless-stopped
+    networks: [aiot-net]
+    ports:
+      - "3200:3200"
+      - "4317:4317"
+      - "4318:4318"
+    volumes:
+      - tempo-data:/var/tempo
+      - ./monitoring/tempo/tempo.yml:/etc/tempo/tempo.yml:ro
+    command: -config.file=/etc/tempo/tempo.yml
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:3200/status"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+
+  grafana:
+    image: grafana/grafana:11.2.0
+    container_name: aiot-grafana
+    profiles: ["observability"]
+    restart: unless-stopped
+    networks: [aiot-net]
+    ports:
+      - "3000:3000"
+    # grafana环境变量启动时自动读取，初始化控制台配置
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin} # 控制台管理员账号，带默认值
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-} # 控制台密码从根.env注入（无弱默认值，observability profile 专用）
+      GF_USERS_ALLOW_SIGN_UP: "false" # 关闭注册功能
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /etc/grafana/provisioning/dashboards/aiot-overview.json
+      GF_DATE_FORMATS_DEFAULT_TIMEZONE: browser
+      GF_EXPLORE_ENABLED: "true"
+    volumes:
+      - grafana-data:/var/lib/grafana # 持久化仪表盘、用户配置
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro # 数据源、仪表盘预配置挂载，启动自动导入
+    depends_on:
+      prometheus:
+        condition: service_healthy
+      loki:
+        condition: service_healthy
+      tempo:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:3000/api/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3

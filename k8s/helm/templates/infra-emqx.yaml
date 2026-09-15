@@ -1,0 +1,78 @@
+{{- if .Values.infra.emqx.enabled }}
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: emqx
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    app: emqx
+    {{- include "aiot.standardLabels" . | nindent 4 }}
+spec:
+  serviceName: emqx
+  replicas: {{ .Values.infra.emqx.replicas }}
+  selector: {matchLabels: {app: emqx}}
+  template:
+    metadata:
+      labels:
+        app: emqx
+        {{- include "aiot.standardLabels" . | nindent 4 }}
+    spec:
+      {{- include "aiot.podSecurityContext" . | nindent 6 }}
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                topologyKey: kubernetes.io/hostname
+                labelSelector:
+                  matchLabels:
+                    app: emqx
+      containers:
+        - name: emqx
+          image: {{ .Values.infra.emqx.image }}
+          ports:
+            - {containerPort: 1883, name: mqtt}
+            - {containerPort: 8083, name: mqtt-ws}
+            - {containerPort: 18083, name: dashboard}
+          env:
+            - name: EMQX_DASHBOARD__DEFAULT_USERNAME
+              valueFrom: {secretKeyRef: {name: aiot-secrets, key: EMQX_API_USER}}
+            - name: EMQX_DASHBOARD__DEFAULT_PASSWORD
+              valueFrom: {secretKeyRef: {name: aiot-secrets, key: EMQX_API_PASSWORD}}
+            - name: EMQX_ALLOW_ANONYMOUS
+              value: "false"
+          volumeMounts: [{name: emqx-data, mountPath: /opt/emqx/data}]
+          resources:
+            requests: {{ toYaml .Values.infra.emqx.resources.requests | nindent 14 }}
+            limits: {{ toYaml .Values.infra.emqx.resources.limits | nindent 14 }}
+          readinessProbe:
+            exec: {command: [/opt/emqx/bin/emqx, ping]}
+            initialDelaySeconds: 30
+            periodSeconds: 15
+            timeoutSeconds: 5
+          livenessProbe:
+            exec: {command: [/opt/emqx/bin/emqx, ping]}
+            initialDelaySeconds: 60
+            periodSeconds: 30
+            timeoutSeconds: 5
+          {{- include "aiot.containerSecurityContext" . | nindent 10 }}
+      volumes:
+        - name: emqx-data
+          persistentVolumeClaim: {claimName: emqx-data}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: emqx
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    app: emqx
+    {{- include "aiot.standardLabels" . | nindent 4 }}
+spec:
+  type: {{ .Values.infra.emqx.serviceType }}
+  ports:
+    - {port: 1883, targetPort: 1883, protocol: TCP, name: mqtt}
+    - {port: 8083, targetPort: 8083, protocol: TCP, name: mqtt-ws}
+    - {port: 18083, targetPort: 18083, protocol: TCP, name: dashboard}
+  selector: {app: emqx}
+{{- end }}
