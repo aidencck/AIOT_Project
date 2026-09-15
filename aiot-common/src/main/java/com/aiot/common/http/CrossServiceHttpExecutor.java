@@ -8,7 +8,11 @@ import reactor.util.retry.Retry;
 
 import java.time.Duration;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Supplier;
 
@@ -49,6 +53,40 @@ public class CrossServiceHttpExecutor {
         } catch (RuntimeException ex) {
             breaker.onFailure();
             throw ex;
+        }
+    }
+
+    public <T> T executeBlocking(String circuitKey, Supplier<T> requestSupplier) {
+        SimpleCircuitBreaker breaker = circuitBreakers.computeIfAbsent(
+                circuitKey,
+                key -> new SimpleCircuitBreaker(
+                        properties.getCircuitBreakerFailureThreshold(),
+                        properties.getCircuitBreakerOpenMs()
+                )
+        );
+        breaker.preCheck();
+        try {
+            T result = CompletableFuture.supplyAsync(requestSupplier)
+                    .get(properties.getTimeoutMs(), TimeUnit.MILLISECONDS);
+            breaker.onSuccess();
+            return result;
+        } catch (InterruptedException ex) {
+            Thread.currentThread().interrupt();
+            breaker.onFailure();
+            throw new IllegalStateException("跨服务调用被中断", ex);
+        } catch (TimeoutException ex) {
+            breaker.onFailure();
+            throw new BusinessException(ResultCode.FAILED, "跨服务调用超时");
+        } catch (ExecutionException ex) {
+            breaker.onFailure();
+            Throwable cause = ex.getCause();
+            if (cause instanceof BusinessException) {
+                throw (BusinessException) cause;
+            }
+            if (cause instanceof RuntimeException) {
+                throw (RuntimeException) cause;
+            }
+            throw new IllegalStateException("跨服务调用失败", cause);
         }
     }
 

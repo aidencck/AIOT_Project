@@ -87,7 +87,7 @@ class GlobalExceptionHandlerTest {
 
         Result<?> result = (Result<?>) handler.handleBusinessException(ex, request, response);
 
-        assertEquals(HttpStatus.CONFLICT.value(), response.getStatus());
+        assertEquals(HttpStatus.SERVICE_UNAVAILABLE.value(), response.getStatus());
         assertEquals(ResultCode.DEVICE_OFFLINE.getCode(), result.getCode());
     }
 

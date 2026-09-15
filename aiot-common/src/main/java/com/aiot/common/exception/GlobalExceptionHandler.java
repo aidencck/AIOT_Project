@@ -11,6 +11,7 @@ import jakarta.validation.ConstraintViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.converter.HttpMessageNotReadableException;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.web.HttpRequestMethodNotSupportedException;
 import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
@@ -47,6 +48,17 @@ public class GlobalExceptionHandler {
                 return Result.fail(e.getResultCode());
             }
             return Result.fail(e.getMessage());
+        });
+    }
+
+    @ExceptionHandler(DuplicateKeyException.class)
+    public Object handleDuplicateKeyException(DuplicateKeyException e,
+                                              HttpServletRequest request,
+                                              HttpServletResponse response) {
+        return protocolAware(request, response, () -> {
+            response.setStatus(HttpStatus.BAD_REQUEST.value());
+            log.warn("唯一键冲突: {}", e.getMessage());
+            return Result.fail(ResultCode.VALIDATE_FAILED.getCode(), "数据重复，违反唯一性约束");
         });
     }
 
@@ -192,7 +204,8 @@ public class GlobalExceptionHandler {
         return switch (resultCode) {
             case SUCCESS -> HttpStatus.OK;
             case VALIDATE_FAILED, PARAM_MISSING, REQUEST_BODY_INVALID -> HttpStatus.BAD_REQUEST;
-            case SHADOW_VERSION_CONFLICT, DEVICE_OFFLINE -> HttpStatus.CONFLICT;
+            case SHADOW_VERSION_CONFLICT -> HttpStatus.CONFLICT;
+            case DEVICE_OFFLINE -> HttpStatus.SERVICE_UNAVAILABLE;
             case UNAUTHORIZED -> HttpStatus.UNAUTHORIZED;
             case FORBIDDEN -> HttpStatus.FORBIDDEN;
             case RESOURCE_NOT_FOUND, DEVICE_NOT_FOUND, PRODUCT_NOT_FOUND -> HttpStatus.NOT_FOUND;
