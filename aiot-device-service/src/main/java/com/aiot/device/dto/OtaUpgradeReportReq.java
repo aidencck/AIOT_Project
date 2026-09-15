@@ -1,6 +1,8 @@
 package com.aiot.device.dto;
 
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Max;
+import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
 import lombok.Data;
@@ -9,6 +11,8 @@ import lombok.Data;
 public class OtaUpgradeReportReq {
 
     @NotNull(message = "status 不能为空")
+    @Min(value = 2, message = "status 仅支持成功或失败")
+    @Max(value = 3, message = "status 仅支持成功或失败")
     private Integer status;
 
     @Size(max = 255, message = "errorMessage 长度不能超过255")

@@ -5,10 +5,12 @@ import com.aiot.common.exception.BusinessException;
 import com.aiot.device.dto.FirmwarePackageCreateReq;
 import com.aiot.device.dto.FirmwarePackageResp;
 import com.aiot.device.dto.OtaTaskPageReq;
+import com.aiot.device.dto.OtaTaskPageResp;
 import com.aiot.device.dto.OtaUpgradeRecordResp;
 import com.aiot.device.dto.OtaUpgradeReportReq;
 import com.aiot.device.dto.OtaUpgradeTaskCreateReq;
 import com.aiot.device.dto.OtaUpgradeTaskResp;
+import com.aiot.device.dto.PageResp;
 import com.aiot.device.entity.Device;
 import com.aiot.device.entity.FirmwarePackage;
 import com.aiot.device.entity.OtaUpgradeRecord;
@@ -20,15 +22,20 @@ import com.aiot.device.repository.OtaUpgradeRecordRepository;
 import com.aiot.device.repository.OtaUpgradeTaskRepository;
 import com.aiot.device.repository.ProductRepository;
 import com.aiot.device.service.OtaService;
+import com.aiot.device.utils.FirmwareVersionUtils;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.UUID;
 import java.util.stream.Collectors;
@@ -58,9 +65,10 @@ public class OtaServiceImpl implements OtaService {
     @Transactional(rollbackFor = Exception.class)
     public String createFirmwarePackage(FirmwarePackageCreateReq req) {
         ensureProductExists(req.getProductKey());
+        validateVersionFormat(req.getVersion(), "固件版本格式不合法");
         LambdaQueryWrapper<FirmwarePackage> existsWrapper = new LambdaQueryWrapper<>();
         existsWrapper.eq(FirmwarePackage::getProductKey, req.getProductKey())
-                .eq(FirmwarePackage::getVersion, req.getVersion());
+                .eq(FirmwarePackage::getVersion, normalizeVersion(req.getVersion()));
         if (firmwarePackageRepository.selectOne(existsWrapper) != null) {
             throw new BusinessException(ResultCode.VALIDATE_FAILED, "同产品版本固件包已存在");
         }
@@ -68,7 +76,7 @@ public class OtaServiceImpl implements OtaService {
         FirmwarePackage firmwarePackage = new FirmwarePackage();
         firmwarePackage.setPackageId("FW_" + UUID.randomUUID().toString().replace("-", "").substring(0, 12).toUpperCase());
         firmwarePackage.setProductKey(req.getProductKey());
-        firmwarePackage.setVersion(req.getVersion());
+        firmwarePackage.setVersion(normalizeVersion(req.getVersion()));
         firmwarePackage.setDownloadUrl(req.getDownloadUrl());
         firmwarePackage.setChecksum(req.getChecksum());
         firmwarePackage.setReleaseNotes(req.getReleaseNotes());
@@ -87,6 +95,16 @@ public class OtaServiceImpl implements OtaService {
 
     @Override
     @Transactional(rollbackFor = Exception.class)
+    public void deleteFirmwarePackage(String packageId) {
+        FirmwarePackage firmwarePackage = findFirmwarePackage(packageId);
+        if (firmwarePackage == null) {
+            throw new BusinessException(ResultCode.RESOURCE_NOT_FOUND, "固件包不存在");
+        }
+        firmwarePackageRepository.deleteById(firmwarePackage.getId());
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
     public String createUpgradeTask(OtaUpgradeTaskCreateReq req) {
         ensureProductExists(req.getProductKey());
         FirmwarePackage firmwarePackage = getFirmwarePackage(req.getPackageId());
@@ -96,8 +114,10 @@ public class OtaServiceImpl implements OtaService {
         if (firmwarePackage.getStatus() == null || firmwarePackage.getStatus() != 1) {
             throw new BusinessException(ResultCode.VALIDATE_FAILED, "固件包不可用");
         }
+        validateVersionFormat(firmwarePackage.getVersion(), "固件包版本格式不合法");
 
-        List<Device> devices = validateAndLoadDevices(req.getDeviceIds(), req.getHomeId(), req.getProductKey());
+        List<Device> devices = validateAndLoadDevices(req.getDeviceIds(), req.getHomeId(), req.getProductKey(), firmwarePackage.getVersion());
+        assertNoActiveUpgrade(devices.stream().map(Device::getId).collect(Collectors.toList()));
         OtaUpgradeTask task = new OtaUpgradeTask();
         task.setTaskId("OTA_" + UUID.randomUUID().toString().replace("-", "").substring(0, 12).toUpperCase());
         task.setHomeId(req.getHomeId());
@@ -110,15 +130,20 @@ public class OtaServiceImpl implements OtaService {
         task.setFailedCount(0);
         otaUpgradeTaskRepository.insert(task);
 
-        for (Device device : devices) {
-            OtaUpgradeRecord record = new OtaUpgradeRecord();
-            record.setRecordId("OTAR_" + UUID.randomUUID().toString().replace("-", "").substring(0, 12).toUpperCase());
-            record.setTaskId(task.getTaskId());
-            record.setDeviceId(device.getId());
-            record.setFromVersion(device.getFirmwareVersion());
-            record.setToVersion(firmwarePackage.getVersion());
-            record.setStatus(1);
-            otaUpgradeRecordRepository.insert(record);
+        try {
+            for (Device device : devices) {
+                OtaUpgradeRecord record = new OtaUpgradeRecord();
+                record.setRecordId("OTAR_" + UUID.randomUUID().toString().replace("-", "").substring(0, 12).toUpperCase());
+                record.setTaskId(task.getTaskId());
+                record.setDeviceId(device.getId());
+                record.setFromVersion(device.getFirmwareVersion());
+                record.setToVersion(firmwarePackage.getVersion());
+                record.setStatus(1);
+                record.setActiveFlag(1);
+                otaUpgradeRecordRepository.insert(record);
+            }
+        } catch (DuplicateKeyException ex) {
+            throw new BusinessException(ResultCode.VALIDATE_FAILED, "设备存在进行中的OTA任务");
         }
         return task.getTaskId();
     }
@@ -140,7 +165,31 @@ public class OtaServiceImpl implements OtaService {
     }
 
     @Override
-    public IPage<OtaUpgradeTaskResp> pageUpgradeTasks(OtaTaskPageReq req) {
+    @Transactional(rollbackFor = Exception.class)
+    public void cancelUpgradeTask(String taskId) {
+        OtaUpgradeTask task = findTask(taskId);
+        if (task == null) {
+            throw new BusinessException(ResultCode.RESOURCE_NOT_FOUND, "升级任务不存在");
+        }
+        if (task.getStatus() != null && task.getStatus() == 2) {
+            throw new BusinessException(ResultCode.VALIDATE_FAILED, "任务已完成，无法取消");
+        }
+        if (task.getStatus() != null && task.getStatus() == 3) {
+            return;
+        }
+
+        LambdaUpdateWrapper<OtaUpgradeRecord> recordWrapper = new LambdaUpdateWrapper<>();
+        recordWrapper.eq(OtaUpgradeRecord::getTaskId, task.getTaskId())
+                .eq(OtaUpgradeRecord::getStatus, 1)
+                .set(OtaUpgradeRecord::getActiveFlag, null);
+        otaUpgradeRecordRepository.update(null, recordWrapper);
+
+        task.setStatus(3);
+        otaUpgradeTaskRepository.updateById(task);
+    }
+
+    @Override
+    public OtaTaskPageResp pageUpgradeTasks(OtaTaskPageReq req) {
         int pageNo = req.getPageNo() == null || req.getPageNo() < 1 ? 1 : req.getPageNo();
         int pageSize = req.getPageSize() == null || req.getPageSize() < 1 ? 20 : req.getPageSize();
         pageSize = Math.min(pageSize, 200);
@@ -152,16 +201,17 @@ public class OtaServiceImpl implements OtaService {
                 .eq(req.getStatus() != null, OtaUpgradeTask::getStatus, req.getStatus())
                 .orderByDesc(OtaUpgradeTask::getCreateTime);
         IPage<OtaUpgradeTask> taskPage = otaUpgradeTaskRepository.selectPage(page, wrapper);
-        return taskPage.convert(task -> toTaskResp(task, false));
+        return OtaTaskPageResp.from(PageResp.from(taskPage.convert(task -> toTaskResp(task, false))));
     }
 
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void reportUpgradeResult(String taskId, String deviceId, OtaUpgradeReportReq req) {
         OtaUpgradeTask task = getTask(taskId);
+        Device device = requireDevice(deviceId);
         LambdaQueryWrapper<OtaUpgradeRecord> rw = new LambdaQueryWrapper<>();
         rw.eq(OtaUpgradeRecord::getTaskId, taskId)
-                .eq(OtaUpgradeRecord::getDeviceId, deviceId);
+                .eq(OtaUpgradeRecord::getDeviceId, device.getId());
         OtaUpgradeRecord record = otaUpgradeRecordRepository.selectOne(rw);
         if (record == null) {
             throw new BusinessException(ResultCode.VALIDATE_FAILED, "升级记录不存在");
@@ -169,20 +219,19 @@ public class OtaServiceImpl implements OtaService {
         if (record.getStatus() != null && record.getStatus() != 1) {
             throw new BusinessException(ResultCode.VALIDATE_FAILED, "升级记录已完成上报");
         }
+        validateUpgradeReport(task, record, device, req);
 
         record.setFromVersion(req.getFromVersion());
         record.setToVersion(req.getToVersion());
         record.setStatus(req.getStatus());
+        record.setActiveFlag(null);
         record.setErrorMessage(req.getErrorMessage());
         record.setReportTime(LocalDateTime.now());
         otaUpgradeRecordRepository.updateById(record);
 
         if (req.getStatus() != null && req.getStatus() == 2) {
-            Device device = deviceRepository.selectById(deviceId);
-            if (device != null) {
-                device.setFirmwareVersion(req.getToVersion());
-                deviceRepository.updateById(device);
-            }
+            device.setFirmwareVersion(req.getToVersion());
+            deviceRepository.updateById(device);
         }
         refreshTaskStatistics(task);
     }
@@ -201,13 +250,17 @@ public class OtaServiceImpl implements OtaService {
     }
 
     private OtaUpgradeTask getTask(String taskId) {
-        LambdaQueryWrapper<OtaUpgradeTask> wrapper = new LambdaQueryWrapper<>();
-        wrapper.eq(OtaUpgradeTask::getTaskId, taskId);
-        OtaUpgradeTask task = otaUpgradeTaskRepository.selectOne(wrapper);
+        OtaUpgradeTask task = findTask(taskId);
         if (task == null) {
             throw new BusinessException(ResultCode.VALIDATE_FAILED, "升级任务不存在");
         }
         return task;
+    }
+
+    private OtaUpgradeTask findTask(String taskId) {
+        LambdaQueryWrapper<OtaUpgradeTask> wrapper = new LambdaQueryWrapper<>();
+        wrapper.eq(OtaUpgradeTask::getTaskId, taskId);
+        return otaUpgradeTaskRepository.selectOne(wrapper);
     }
 
     private OtaUpgradeTaskResp toTaskResp(OtaUpgradeTask task, boolean withRecords) {
@@ -262,22 +315,27 @@ public class OtaServiceImpl implements OtaService {
     }
 
     private FirmwarePackage getFirmwarePackage(String packageId) {
-        LambdaQueryWrapper<FirmwarePackage> wrapper = new LambdaQueryWrapper<>();
-        wrapper.eq(FirmwarePackage::getPackageId, packageId);
-        FirmwarePackage firmwarePackage = firmwarePackageRepository.selectOne(wrapper);
+        FirmwarePackage firmwarePackage = findFirmwarePackage(packageId);
         if (firmwarePackage == null) {
             throw new BusinessException(ResultCode.VALIDATE_FAILED, "固件包不存在");
         }
         return firmwarePackage;
     }
 
-    private List<Device> validateAndLoadDevices(List<String> deviceIds, String homeId, String productKey) {
+    private FirmwarePackage findFirmwarePackage(String packageId) {
+        LambdaQueryWrapper<FirmwarePackage> wrapper = new LambdaQueryWrapper<>();
+        wrapper.eq(FirmwarePackage::getPackageId, packageId);
+        return firmwarePackageRepository.selectOne(wrapper);
+    }
+
+    private List<Device> validateAndLoadDevices(List<String> deviceIds, String homeId, String productKey, String targetVersion) {
         if (deviceIds == null || deviceIds.isEmpty()) {
             throw new BusinessException(ResultCode.VALIDATE_FAILED, "升级设备列表不能为空");
         }
-        List<Device> devices = new ArrayList<>();
-        for (String deviceId : deviceIds) {
-            Device device = deviceRepository.selectById(deviceId);
+        List<String> uniqueDeviceIds = new ArrayList<>(new LinkedHashSet<>(deviceIds));
+        LinkedHashMap<String, Device> devices = new LinkedHashMap<>();
+        for (String deviceId : uniqueDeviceIds) {
+            Device device = deviceRepository.selectByIdentity(deviceId);
             if (device == null) {
                 throw new BusinessException(ResultCode.VALIDATE_FAILED, "设备不存在: " + deviceId);
             }
@@ -287,9 +345,62 @@ public class OtaServiceImpl implements OtaService {
             if (!productKey.equals(device.getProductKey())) {
                 throw new BusinessException(ResultCode.VALIDATE_FAILED, "设备产品与任务不匹配: " + deviceId);
             }
-            devices.add(device);
+            validateVersionFormat(device.getFirmwareVersion(), "设备当前固件版本格式不合法: " + deviceId);
+            if (FirmwareVersionUtils.compare(targetVersion, device.getFirmwareVersion()) <= 0) {
+                throw new BusinessException(ResultCode.VALIDATE_FAILED, "目标版本必须高于设备当前版本: " + deviceId);
+            }
+            devices.putIfAbsent(device.getId(), device);
         }
-        return devices;
+        return new ArrayList<>(devices.values());
+    }
+
+    private Device requireDevice(String deviceIdentity) {
+        Device device = deviceRepository.selectByIdentity(deviceIdentity);
+        if (device == null) {
+            throw new BusinessException(ResultCode.VALIDATE_FAILED, "设备不存在");
+        }
+        return device;
+    }
+
+    private void validateUpgradeReport(OtaUpgradeTask task, OtaUpgradeRecord record, Device device, OtaUpgradeReportReq req) {
+        validateVersionFormat(req.getFromVersion(), "升级上报的源版本格式不合法");
+        validateVersionFormat(req.getToVersion(), "升级上报的目标版本格式不合法");
+        if (!normalizeVersion(task.getTargetVersion()).equals(normalizeVersion(req.getToVersion()))) {
+            throw new BusinessException(ResultCode.VALIDATE_FAILED, "升级上报目标版本与任务不一致");
+        }
+        if (!normalizeVersion(record.getToVersion()).equals(normalizeVersion(req.getToVersion()))) {
+            throw new BusinessException(ResultCode.VALIDATE_FAILED, "升级上报目标版本与升级记录不一致");
+        }
+        if (!normalizeVersion(record.getFromVersion()).equals(normalizeVersion(req.getFromVersion()))) {
+            throw new BusinessException(ResultCode.VALIDATE_FAILED, "升级上报源版本与升级记录不一致");
+        }
+        if (!normalizeVersion(device.getFirmwareVersion()).equals(normalizeVersion(req.getFromVersion()))) {
+            throw new BusinessException(ResultCode.VALIDATE_FAILED, "升级上报源版本与设备当前版本不一致");
+        }
+    }
+
+    private void assertNoActiveUpgrade(List<String> deviceIds) {
+        if (deviceIds.isEmpty()) {
+            return;
+        }
+        LambdaQueryWrapper<OtaUpgradeRecord> wrapper = new LambdaQueryWrapper<>();
+        wrapper.in(OtaUpgradeRecord::getDeviceId, deviceIds)
+                .eq(OtaUpgradeRecord::getActiveFlag, 1);
+        List<OtaUpgradeRecord> activeRecords = otaUpgradeRecordRepository.selectList(wrapper);
+        if (!activeRecords.isEmpty()) {
+            throw new BusinessException(ResultCode.VALIDATE_FAILED,
+                    "设备存在进行中的OTA任务: " + activeRecords.get(0).getDeviceId());
+        }
+    }
+
+    private void validateVersionFormat(String version, String message) {
+        if (!FirmwareVersionUtils.isValid(version)) {
+            throw new BusinessException(ResultCode.VALIDATE_FAILED, message);
+        }
+    }
+
+    private String normalizeVersion(String version) {
+        return FirmwareVersionUtils.normalize(version);
     }
 
     private void ensureProductExists(String productKey) {

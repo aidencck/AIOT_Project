@@ -6,8 +6,10 @@ import lombok.Data;
 public class ProductResp {
     private String id;
     private String productKey;
+    private String deviceModelKey;
     private String name;
     private String description;
     private Integer nodeType;
     private String thingModelJson;
+    private String deviceModelJson;
 }

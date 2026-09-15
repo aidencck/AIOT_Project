@@ -5,6 +5,7 @@ import com.aiot.common.exception.BusinessException;
 import com.aiot.device.annotation.RequireHomePermission;
 import com.aiot.device.dto.DeviceReq;
 import com.aiot.device.entity.Device;
+import com.aiot.device.entity.OtaUpgradeTask;
 import com.aiot.device.repository.DeviceRepository;
 import com.aiot.device.repository.OtaUpgradeTaskRepository;
 import com.aiot.device.security.HomePermissionService;
@@ -69,7 +70,7 @@ class RequireHomePermissionAspectTest {
 
         Device device = new Device();
         device.setHomeId("home-2");
-        when(deviceRepository.selectById("dev-1")).thenReturn(device);
+        when(deviceRepository.selectByIdentity("dev-1")).thenReturn(device);
 
         JoinPoint joinPoint = mockJoinPoint("getDevice", new Object[]{"dev-1"}, new String[]{"deviceId"}, String.class);
         RequireHomePermission annotation = annotation("getDevice", String.class);
@@ -77,6 +78,52 @@ class RequireHomePermissionAspectTest {
         aspect.before(joinPoint, annotation);
 
         verify(homePermissionService).requireHomePermission("home-2", 3, "无权限访问该设备");
+    }
+
+    @Test
+    void shouldAuthorizeByOtaTaskResourceId() throws Exception {
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        request.setAttribute(HandlerMapping.URI_TEMPLATE_VARIABLES_ATTRIBUTE, Map.of("taskId", "task-1"));
+        RequestContextHolder.setRequestAttributes(new ServletRequestAttributes(request));
+
+        OtaUpgradeTask task = new OtaUpgradeTask();
+        task.setHomeId("home-3");
+        when(otaUpgradeTaskRepository.selectByTaskId("task-1")).thenReturn(task);
+
+        JoinPoint joinPoint = mockJoinPoint("getOtaTask", new Object[]{"task-1"}, new String[]{"taskId"}, String.class);
+        RequireHomePermission annotation = annotation("getOtaTask", String.class);
+
+        aspect.before(joinPoint, annotation);
+
+        verify(homePermissionService).requireHomePermission("home-3", 3, "无权限访问该OTA任务");
+    }
+
+    @Test
+    void shouldReturnDeviceNotFoundWhenDeviceResourceMissing() throws Exception {
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        request.setAttribute(HandlerMapping.URI_TEMPLATE_VARIABLES_ATTRIBUTE, Map.of("deviceId", "dev-missing"));
+        RequestContextHolder.setRequestAttributes(new ServletRequestAttributes(request));
+
+        JoinPoint joinPoint = mockJoinPoint("getDevice", new Object[]{"dev-missing"}, new String[]{"deviceId"}, String.class);
+        RequireHomePermission annotation = annotation("getDevice", String.class);
+
+        BusinessException ex = assertThrows(BusinessException.class, () -> aspect.before(joinPoint, annotation));
+        assertEquals(ResultCode.DEVICE_NOT_FOUND, ex.getResultCode());
+        assertEquals("设备不存在", ex.getMessage());
+    }
+
+    @Test
+    void shouldReturnResourceNotFoundWhenOtaTaskMissing() throws Exception {
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        request.setAttribute(HandlerMapping.URI_TEMPLATE_VARIABLES_ATTRIBUTE, Map.of("taskId", "task-missing"));
+        RequestContextHolder.setRequestAttributes(new ServletRequestAttributes(request));
+
+        JoinPoint joinPoint = mockJoinPoint("getOtaTask", new Object[]{"task-missing"}, new String[]{"taskId"}, String.class);
+        RequireHomePermission annotation = annotation("getOtaTask", String.class);
+
+        BusinessException ex = assertThrows(BusinessException.class, () -> aspect.before(joinPoint, annotation));
+        assertEquals(ResultCode.RESOURCE_NOT_FOUND, ex.getResultCode());
+        assertEquals("OTA任务不存在", ex.getMessage());
     }
 
     @Test
@@ -112,6 +159,10 @@ class RequireHomePermissionAspectTest {
 
         @RequireHomePermission(minRole = 3, denyMessage = "无权限访问该设备", resourceType = com.aiot.device.annotation.ResourceType.DEVICE, resourceIdParam = "deviceId")
         public void getDevice(String deviceId) {
+        }
+
+        @RequireHomePermission(minRole = 3, denyMessage = "无权限访问该OTA任务", resourceType = com.aiot.device.annotation.ResourceType.OTA_TASK, resourceIdParam = "taskId")
+        public void getOtaTask(String taskId) {
         }
     }
 }

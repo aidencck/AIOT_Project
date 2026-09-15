@@ -2,6 +2,7 @@ package com.aiot.device.controller;
 
 import com.aiot.common.api.Result;
 import com.aiot.device.service.DeviceService;
+import io.swagger.v3.oas.annotations.Hidden;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
@@ -16,6 +17,7 @@ import org.springframework.web.bind.annotation.RestController;
 /**
  * 认证服务回调设备状态同步入口（内部调用）
  */
+@Hidden
 @RestController
 @RequestMapping("/api/v1/internal/devices")
 @Validated

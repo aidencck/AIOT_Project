@@ -3,7 +3,9 @@ package com.aiot.device.service.impl;
 import com.aiot.common.config.RedisUtils;
 import com.aiot.common.event.DeviceEvent;
 import com.aiot.common.event.DeviceEventType;
+import com.aiot.device.entity.Device;
 import com.aiot.device.service.DeviceShadowService;
+import com.aiot.device.support.DeviceIdentityResolver;
 import com.aiot.common.api.ResultCode;
 import com.aiot.common.exception.BusinessException;
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -11,6 +13,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.redis.core.RedisTemplate;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.stereotype.Service;
 import org.springframework.util.ObjectUtils;
@@ -34,7 +37,13 @@ public class DeviceShadowServiceImpl implements DeviceShadowService {
     private RedisTemplate<String, Object> redisTemplate;
 
     @Autowired
+    private StringRedisTemplate stringRedisTemplate;
+
+    @Autowired
     private ObjectMapper objectMapper;
+
+    @Autowired
+    private DeviceIdentityResolver deviceIdentityResolver;
 
     @Value("${aiot.events.device-status-stream:aiot:stream:device-event}")
     private String deviceEventStream;
@@ -75,26 +84,29 @@ public class DeviceShadowServiceImpl implements DeviceShadowService {
     @Override
     public void updateReportedShadow(String deviceId, Map<String, Object> reported, Long expectedVersion) {
         validateShadowPayload(reported, "reported");
-        Long version = applyShadowUpdateLua(deviceId, SHADOW_REPORTED, reported, expectedVersion);
-        publishShadowEvent(deviceId, DeviceEventType.SHADOW_REPORTED_UPDATED, version, reported);
+        Device device = requireDevice(deviceId);
+        String shadowDeviceId = resolveShadowDeviceId(device);
+        Long version = applyShadowUpdateLua(shadowDeviceId, SHADOW_REPORTED, reported, expectedVersion);
+        publishShadowEvent(shadowDeviceId, DeviceEventType.SHADOW_REPORTED_UPDATED, version, reported);
     }
 
     @Override
     public void updateDesiredShadow(String deviceId, Map<String, Object> desired, Long expectedVersion) {
         validateShadowPayload(desired, "desired");
-        Long version = applyShadowUpdateLua(deviceId, SHADOW_DESIRED, desired, expectedVersion);
-        publishShadowEvent(deviceId, DeviceEventType.SHADOW_DESIRED_UPDATED, version, desired);
+        Device device = requireDevice(deviceId);
+        String shadowDeviceId = resolveShadowDeviceId(device);
+        Long version = applyShadowUpdateLua(shadowDeviceId, SHADOW_DESIRED, desired, expectedVersion);
+        publishShadowEvent(shadowDeviceId, DeviceEventType.SHADOW_DESIRED_UPDATED, version, desired);
     }
 
     @Override
     public Map<String, Object> getDeviceShadow(String deviceId) {
-        String reportedKey = redisUtils.buildKey("device", "shadow:reported", deviceId);
-        String desiredKey = redisUtils.buildKey("device", "shadow:desired", deviceId);
-        String metaKey = redisUtils.buildKey("device", "shadow:meta", deviceId);
+        Device device = requireDevice(deviceId);
+        String shadowDeviceId = resolveShadowDeviceId(device);
 
-        Map<Object, Object> reported = normalizeShadowState(redisTemplate.opsForHash().entries(reportedKey));
-        Map<Object, Object> desired = normalizeShadowState(redisTemplate.opsForHash().entries(desiredKey));
-        Map<Object, Object> meta = redisTemplate.opsForHash().entries(metaKey);
+        Map<Object, Object> reported = loadShadowEntries("shadow:reported", shadowDeviceId, device.getId());
+        Map<Object, Object> desired = loadShadowEntries("shadow:desired", shadowDeviceId, device.getId());
+        Map<Object, Object> meta = loadRawEntries("shadow:meta", shadowDeviceId, device.getId());
 
         Map<String, Object> shadow = new HashMap<>();
         shadow.put(SHADOW_REPORTED, reported);
@@ -215,5 +227,27 @@ public class DeviceShadowServiceImpl implements DeviceShadowService {
         } catch (JsonProcessingException ignored) {
             // ignore publish serialization failure to avoid breaking core shadow write path
         }
+    }
+
+    private Device requireDevice(String deviceIdentity) {
+        return deviceIdentityResolver.requireByIdentity(deviceIdentity, "设备不存在");
+    }
+
+    private String resolveShadowDeviceId(Device device) {
+        return deviceIdentityResolver.resolveGlobalDeviceId(device);
+    }
+
+    private Map<Object, Object> loadShadowEntries(String namespace, String canonicalDeviceId, String legacyDeviceId) {
+        return normalizeShadowState(loadRawEntries(namespace, canonicalDeviceId, legacyDeviceId));
+    }
+
+    private Map<Object, Object> loadRawEntries(String namespace, String canonicalDeviceId, String legacyDeviceId) {
+        String canonicalKey = redisUtils.buildKey("device", namespace, canonicalDeviceId);
+        Map<Object, Object> entries = stringRedisTemplate.opsForHash().entries(canonicalKey);
+        if (!entries.isEmpty() || !StringUtils.hasText(legacyDeviceId) || canonicalDeviceId.equals(legacyDeviceId)) {
+            return entries;
+        }
+        String legacyKey = redisUtils.buildKey("device", namespace, legacyDeviceId);
+        return stringRedisTemplate.opsForHash().entries(legacyKey);
     }
 }

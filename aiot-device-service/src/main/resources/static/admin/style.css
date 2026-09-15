@@ -18,13 +18,29 @@ body {
 .topbar {
   display: flex;
   justify-content: space-between;
-  align-items: center;
+  align-items: flex-start;
   margin-bottom: 16px;
+  gap: 16px;
 }
 
-.token-box {
+.page-subtitle {
+  margin: 6px 0 0;
+  color: #6b7280;
+  font-size: 13px;
+}
+
+.topbar-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  align-items: flex-end;
+}
+
+.token-box,
+.home-switcher {
   display: flex;
   gap: 8px;
+  align-items: center;
 }
 
 input, select, button {
@@ -52,11 +68,40 @@ button:hover {
   margin-bottom: 16px;
 }
 
+.grid.workbench-summary,
+.grid.snapshot-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.closure-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
 .card {
   background: #fff;
   border-radius: 10px;
   padding: 12px;
   border: 1px solid #e5e7eb;
+}
+
+.stage-card {
+  border-left: 4px solid #2563eb;
+}
+
+.stage-card.attention {
+  border-left-color: #dc2626;
+  background: #fff7f7;
+}
+
+.stage-card.optional {
+  border-left-color: #d97706;
+  background: #fffbeb;
 }
 
 .card .label {
@@ -108,4 +153,40 @@ th, td {
   color: #4b5563;
   font-size: 12px;
   margin-top: 8px;
+}
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 6px 10px;
+  border-radius: 999px;
+  background: #eff6ff;
+  color: #1d4ed8;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.snapshot-card {
+  background: #f8fafc;
+}
+
+.snapshot-card h3 {
+  margin: 0 0 8px;
+  font-size: 14px;
+}
+
+.snapshot-list {
+  margin: 0;
+  padding-left: 18px;
+  color: #374151;
+  font-size: 13px;
+}
+
+.snapshot-list li + li {
+  margin-top: 4px;
+}
+
+.summary-number {
+  font-size: 28px;
+  font-weight: 700;
 }

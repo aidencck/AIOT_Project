@@ -9,14 +9,120 @@
 <body>
   <div class="app">
     <header class="topbar">
-      <h1>AIoT 后台管理系统</h1>
-      <div class="token-box">
+      <div>
+        <h1>AIoT 后台管理系统</h1>
+        <p class="page-subtitle">统一聚合家庭、设备、OTA、AI 治理与运营闭环，保持后台层低耦合。</p>
+      </div>
+      <div class="topbar-actions">
+        <div class="home-switcher">
+          <label for="homeSelector">当前家庭</label>
+          <select id="homeSelector">
+            <option value="">加载中...</option>
+          </select>
+          <button id="reloadWorkbenchBtn">切换工作台</button>
+        </div>
+        <div class="token-box">
         <input id="tokenInput" type="password" placeholder="粘贴 Bearer Token（不含 Bearer 前缀）" />
         <button id="saveTokenBtn">保存 Token</button>
+        </div>
       </div>
     </header>
 
+    <section class="panel">
+      <div class="panel-header">
+        <h2>闭环工作台</h2>
+        <div class="filters">
+          <span class="badge" id="closureScoreBadge">闭环评分 -</span>
+          <span class="hint" id="selectedHomeHint"></span>
+        </div>
+      </div>
+      <div class="grid workbench-summary" id="workbenchSummaryCards"></div>
+      <div class="grid closure-grid" id="closureStageCards"></div>
+      <div class="grid snapshot-grid" id="snapshotPanels"></div>
+    </section>
+
     <section class="grid stats" id="statsCards"></section>
+
+    <section class="panel">
+      <div class="panel-header">
+        <h2>AI 评估门禁</h2>
+        <div class="filters">
+          <input id="aiEvalScenes" placeholder="sceneType，多值逗号分隔，可选" />
+          <button id="loadAiEvalBtn">刷新评估</button>
+        </div>
+      </div>
+      <table>
+        <thead>
+          <tr>
+            <th>场景</th>
+            <th>报告存在</th>
+            <th>门禁结果</th>
+            <th>生成时间</th>
+            <th>样本数</th>
+            <th>Schema通过率</th>
+          </tr>
+        </thead>
+        <tbody id="aiEvalTableBody"></tbody>
+      </table>
+      <p class="hint" id="aiEvalHint"></p>
+    </section>
+
+    <section class="panel">
+      <div class="panel-header">
+        <h2>AI 业务活体验证</h2>
+        <div class="filters">
+          <button id="loadBusinessLiveFlowBtn">刷新验证</button>
+        </div>
+      </div>
+      <table>
+        <thead>
+          <tr>
+            <th>指标</th>
+            <th>值</th>
+          </tr>
+        </thead>
+        <tbody id="businessLiveFlowTableBody"></tbody>
+      </table>
+      <p class="hint" id="businessLiveFlowHint"></p>
+    </section>
+
+    <section class="panel">
+      <div class="panel-header">
+        <h2>AI 持久化历史</h2>
+        <div class="filters">
+          <button id="loadAiPersistenceHistoryBtn">刷新历史</button>
+        </div>
+      </div>
+      <table>
+        <thead>
+          <tr>
+            <th>类型</th>
+            <th>时间</th>
+            <th>执行人</th>
+            <th>场景</th>
+            <th>结果</th>
+            <th>模式</th>
+            <th>报告</th>
+            <th>信息</th>
+          </tr>
+        </thead>
+        <tbody id="aiPersistenceHistoryTableBody"></tbody>
+      </table>
+      <p class="hint" id="aiPersistenceHistoryHint"></p>
+    </section>
+
+    <section class="panel">
+      <div class="panel-header">
+        <h2>AI 历史详情</h2>
+        <div class="filters">
+          <span class="hint">点击上方历史表的“查看详情”加载归档内容</span>
+        </div>
+      </div>
+      <table>
+        <tbody id="aiPersistenceHistoryDetailMetaBody"></tbody>
+      </table>
+      <pre id="aiPersistenceHistoryDetailContent">暂无详情</pre>
+    </section>
 
     <section class="panel">
       <div class="panel-header">

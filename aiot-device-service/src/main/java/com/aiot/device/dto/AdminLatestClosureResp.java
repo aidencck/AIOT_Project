@@ -9,10 +9,12 @@ import java.util.Map;
 @Data
 @Builder
 public class AdminLatestClosureResp {
+    private String selectedHomeId;
     private List<Map<String, Object>> homes;
     private List<Map<String, Object>> members;
     private List<ProductResp> products;
     private List<DeviceResp> devices;
     private List<OtaUpgradeTaskResp> otaTasks;
     private Map<String, Object> opsOverview;
+    private List<AdminAiEvalReportResp> aiEvalReports;
 }

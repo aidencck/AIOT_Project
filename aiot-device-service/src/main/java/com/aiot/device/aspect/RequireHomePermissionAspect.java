@@ -68,12 +68,18 @@ public class RequireHomePermissionAspect {
             return null;
         }
         if (requireHomePermission.resourceType() == ResourceType.DEVICE) {
-            Device device = deviceRepository.selectById(resourceId);
-            return device == null ? null : device.getHomeId();
+            Device device = deviceRepository.selectByIdentity(resourceId);
+            if (device == null) {
+                throw new BusinessException(ResultCode.DEVICE_NOT_FOUND, "设备不存在");
+            }
+            return device.getHomeId();
         }
         if (requireHomePermission.resourceType() == ResourceType.OTA_TASK) {
-            OtaUpgradeTask task = otaUpgradeTaskRepository.selectById(resourceId);
-            return task == null ? null : task.getHomeId();
+            OtaUpgradeTask task = otaUpgradeTaskRepository.selectByTaskId(resourceId);
+            if (task == null) {
+                throw new BusinessException(ResultCode.RESOURCE_NOT_FOUND, "OTA任务不存在");
+            }
+            return task.getHomeId();
         }
         return null;
     }

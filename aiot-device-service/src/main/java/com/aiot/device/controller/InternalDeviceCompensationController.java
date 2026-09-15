@@ -2,6 +2,7 @@ package com.aiot.device.controller;
 
 import com.aiot.common.api.Result;
 import com.aiot.device.service.DeviceService;
+import io.swagger.v3.oas.annotations.Hidden;
 import jakarta.validation.constraints.NotBlank;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.validation.annotation.Validated;
@@ -13,6 +14,7 @@ import org.springframework.web.bind.annotation.RestController;
 /**
  * Home 域删除操作触发的设备补偿接口
  */
+@Hidden
 @RestController
 @RequestMapping("/api/v1/internal/devices/unbind")
 @Validated

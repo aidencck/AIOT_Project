@@ -28,6 +28,8 @@ public class OtaUpgradeRecord {
 
     private Integer status;
 
+    private Integer activeFlag;
+
     private String errorMessage;
 
     private LocalDateTime reportTime;

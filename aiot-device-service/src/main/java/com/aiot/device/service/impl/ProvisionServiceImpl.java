@@ -77,9 +77,11 @@ public class ProvisionServiceImpl implements ProvisionService {
     private String deviceEventStream;
 
     @Override
-    public String generateProvisionToken(String productKey, String deviceName, String homeId) {
-        if (!StringUtils.hasText(productKey) || !StringUtils.hasText(deviceName)) {
-            throw new BusinessException(ResultCode.VALIDATE_FAILED, "productKey 和 deviceName 不能为空");
+    public String generateProvisionToken(String productKey, String deviceSn, String deviceName, String homeId) {
+        String normalizedDeviceSn = normalizeOptionalValue(deviceSn);
+        String normalizedDeviceName = normalizeOptionalValue(deviceName);
+        if (!StringUtils.hasText(productKey) || (!StringUtils.hasText(normalizedDeviceSn) && !StringUtils.hasText(normalizedDeviceName))) {
+            throw new BusinessException(ResultCode.VALIDATE_FAILED, "productKey 和 deviceSn/deviceName 不能为空");
         }
         ensureProductExists(productKey);
         homePermissionService.requireHomePermission(homeId, 2, "无权限为该家庭发放配网令牌");
@@ -87,10 +89,10 @@ public class ProvisionServiceImpl implements ProvisionService {
         String auditId = UUID.randomUUID().toString();
         String token = UUID.randomUUID().toString().replace("-", "");
         String redisKey = redisUtils.buildKey("device", "provision", token);
-        ProvisionTokenPayload payload = new ProvisionTokenPayload(homeId, productKey, deviceName);
+        ProvisionTokenPayload payload = new ProvisionTokenPayload(homeId, productKey, normalizedDeviceSn, normalizedDeviceName);
         redisUtils.set(redisKey, toJson(payload), tokenTtlSeconds, TimeUnit.SECONDS);
-        log.info("Provision token issued, auditId={}, homeId={}, productKey={}, deviceName={}, tokenKey={}, ttlSeconds={}",
-                auditId, homeId, productKey, deviceName, redisKey, tokenTtlSeconds);
+        log.info("Provision token issued, auditId={}, homeId={}, productKey={}, deviceSn={}, deviceName={}, tokenKey={}, ttlSeconds={}",
+                auditId, homeId, productKey, normalizedDeviceSn, normalizedDeviceName, redisKey, tokenTtlSeconds);
         return token;
     }
 
@@ -116,26 +118,27 @@ public class ProvisionServiceImpl implements ProvisionService {
                     auditId, ex.getResultCode().getCode(), ex.getMessage());
             throw ex;
         }
-        if (!Objects.equals(payload.productKey(), req.getProductKey())
-                || !Objects.equals(payload.deviceName(), req.getDeviceName())) {
-            log.warn("Provision token mismatch, auditId={}, expectedProductKey={}, reqProductKey={}, expectedDeviceName={}, reqDeviceName={}",
-                    auditId, payload.productKey(), req.getProductKey(), payload.deviceName(), req.getDeviceName());
+        String requestDeviceSn = normalizeOptionalValue(req.getDeviceSn());
+        String requestDeviceName = normalizeOptionalValue(req.getDeviceName());
+        if (!isProvisionIdentityMatched(payload, req.getProductKey(), requestDeviceSn, requestDeviceName)) {
+            log.warn("Provision token mismatch, auditId={}, expectedProductKey={}, reqProductKey={}, expectedDeviceSn={}, reqDeviceSn={}, expectedDeviceName={}, reqDeviceName={}",
+                    auditId, payload.productKey(), req.getProductKey(), payload.deviceSn(), requestDeviceSn, payload.deviceName(), requestDeviceName);
             publishProvisionEvent(DeviceEventType.DEVICE_PROVISION_REJECTED, null, payload.homeId(), req,
                     auditId, ResultCode.FORBIDDEN.getCode(), "配网请求与令牌绑定信息不一致");
             throw new BusinessException(ResultCode.FORBIDDEN, "配网请求与令牌绑定信息不一致");
         }
-        String lockKey = redisUtils.buildKey("device", "provision-lock", req.getProductKey() + ":" + req.getDeviceName());
-        if (!redisUtils.setIfAbsent(lockKey, auditId, exchangeLockSeconds, TimeUnit.SECONDS)) {
+        String lockKey = redisUtils.buildKey("device", "provision-lock", buildProvisionIdentityKey(req.getProductKey(), requestDeviceSn, requestDeviceName));
+        if (!redisUtils.setIfAbsentString(lockKey, auditId, exchangeLockSeconds, TimeUnit.SECONDS)) {
             publishProvisionEvent(DeviceEventType.DEVICE_PROVISION_REJECTED, null, payload.homeId(), req,
                     auditId, ResultCode.FAILED.getCode(), "设备配网处理中，请稍后重试");
             throw new BusinessException(ResultCode.FAILED, "设备配网处理中，请稍后重试");
         }
         try {
             ProvisionResp resp = resolveOrCreateProvisioning(payload, req, auditId);
-            publishProvisionEvent(DeviceEventType.DEVICE_PROVISION_SUCCEEDED, resp.getDeviceId(), payload.homeId(), req,
+            publishProvisionEvent(DeviceEventType.DEVICE_PROVISION_SUCCEEDED, resp.getGlobalDeviceId(), payload.homeId(), req,
                     auditId, 200, "success");
-            log.info("Provision exchange success, auditId={}, homeId={}, productKey={}, deviceName={}, deviceId={}",
-                    auditId, payload.homeId(), req.getProductKey(), req.getDeviceName(), resp.getDeviceId());
+            log.info("Provision exchange success, auditId={}, homeId={}, productKey={}, deviceSn={}, deviceName={}, deviceId={}",
+                    auditId, payload.homeId(), req.getProductKey(), requestDeviceSn, requestDeviceName, resp.getGlobalDeviceId());
             return resp;
         } catch (BusinessException ex) {
             publishProvisionEvent(DeviceEventType.DEVICE_PROVISION_REJECTED, null, payload.homeId(), req,
@@ -146,40 +149,49 @@ public class ProvisionServiceImpl implements ProvisionService {
                     auditId, ResultCode.FAILED.getCode(), ex.getMessage());
             throw ex;
         } finally {
-            redisUtils.delete(lockKey);
+            redisUtils.releaseIfHeld(lockKey, auditId);
         }
     }
 
     private ProvisionResp resolveOrCreateProvisioning(ProvisionTokenPayload payload, ProvisionReq req, String auditId) {
-        List<Device> existedDevices = findExistingDevices(req.getProductKey(), req.getDeviceName());
+        String deviceSn = normalizeOptionalValue(req.getDeviceSn());
+        String deviceName = resolveProvisionDeviceName(payload, req);
+        List<Device> existedDevices = findExistingDevices(req.getProductKey(), deviceSn, deviceName);
         Device existed = existedDevices.isEmpty() ? null : existedDevices.get(0);
         if (existedDevices.size() > 1) {
-            log.warn("Provision duplicate device records detected, auditId={}, productKey={}, deviceName={}, records={}",
-                    auditId, req.getProductKey(), req.getDeviceName(), existedDevices.size());
+            log.warn("Provision duplicate device records detected, auditId={}, productKey={}, deviceSn={}, deviceName={}, records={}",
+                    auditId, req.getProductKey(), deviceSn, deviceName, existedDevices.size());
             throw new BusinessException(ResultCode.FAILED, "设备唯一性被破坏，请联系管理员修复");
         }
         if (existed != null) {
             if (!StringUtils.hasText(existed.getHomeId())) {
                 DeviceReq deviceReq = new DeviceReq();
                 deviceReq.setProductKey(req.getProductKey());
-                deviceReq.setDeviceName(req.getDeviceName());
+                deviceReq.setDeviceName(deviceName);
+                deviceReq.setGlobalDeviceId(req.getGlobalDeviceId());
+                deviceReq.setDeviceSn(deviceSn);
+                deviceReq.setAuthIdentity(req.getAuthIdentity());
                 deviceReq.setHomeId(payload.homeId());
                 DeviceResp deviceResp = deviceService.claimUnboundDevice(deviceReq);
                 return buildResp(deviceResp.getId(), deviceResp.getGlobalDeviceId(),
                         deviceResp.getDeviceSn(), deviceResp.getAuthIdentity(), deviceResp.getDeviceSecret());
             }
             if (!Objects.equals(existed.getHomeId(), payload.homeId())) {
-                log.warn("Provision home mismatch for existing device, auditId={}, productKey={}, deviceName={}, expectedHomeId={}, actualHomeId={}",
-                        auditId, req.getProductKey(), req.getDeviceName(), payload.homeId(), existed.getHomeId());
+                log.warn("Provision home mismatch for existing device, auditId={}, productKey={}, deviceSn={}, deviceName={}, expectedHomeId={}, actualHomeId={}",
+                        auditId, req.getProductKey(), deviceSn, deviceName, payload.homeId(), existed.getHomeId());
                 throw new BusinessException(ResultCode.FORBIDDEN, "设备已绑定其他家庭，禁止重复认领");
             }
+            mergeCompatibilityFields(existed, req, deviceName);
             return buildResp(existed.getId(), resolveGlobalDeviceId(existed),
                     existed.getDeviceSn(), resolveAuthIdentity(existed), loadCredential(existed.getId()).getDeviceSecret());
         }
 
         DeviceReq deviceReq = new DeviceReq();
         deviceReq.setProductKey(req.getProductKey());
-        deviceReq.setDeviceName(req.getDeviceName());
+        deviceReq.setDeviceName(deviceName);
+        deviceReq.setGlobalDeviceId(req.getGlobalDeviceId());
+        deviceReq.setDeviceSn(deviceSn);
+        deviceReq.setAuthIdentity(req.getAuthIdentity());
         deviceReq.setHomeId(payload.homeId());
 
         try {
@@ -187,7 +199,7 @@ public class ProvisionServiceImpl implements ProvisionService {
             return buildResp(deviceResp.getId(), deviceResp.getGlobalDeviceId(),
                     deviceResp.getDeviceSn(), deviceResp.getAuthIdentity(), deviceResp.getDeviceSecret());
         } catch (DuplicateKeyException ex) {
-            List<Device> concurrentDevices = findExistingDevices(req.getProductKey(), req.getDeviceName());
+            List<Device> concurrentDevices = findExistingDevices(req.getProductKey(), deviceSn, deviceName);
             if (concurrentDevices.size() != 1) {
                 throw new BusinessException(ResultCode.FAILED, "设备唯一性被破坏，请联系管理员修复");
             }
@@ -195,6 +207,7 @@ public class ProvisionServiceImpl implements ProvisionService {
             if (!Objects.equals(concurrentDevice.getHomeId(), payload.homeId())) {
                 throw new BusinessException(ResultCode.FORBIDDEN, "设备已绑定其他家庭，禁止重复认领");
             }
+            mergeCompatibilityFields(concurrentDevice, req, deviceName);
             return buildResp(concurrentDevice.getId(), resolveGlobalDeviceId(concurrentDevice),
                     concurrentDevice.getDeviceSn(), resolveAuthIdentity(concurrentDevice),
                     loadCredential(concurrentDevice.getId()).getDeviceSecret());
@@ -228,7 +241,10 @@ public class ProvisionServiceImpl implements ProvisionService {
         detail.put("auditId", auditId);
         detail.put("homeId", homeId);
         detail.put("productKey", req.getProductKey());
-        detail.put("deviceName", req.getDeviceName());
+        detail.put("deviceName", normalizeOptionalValue(req.getDeviceName()));
+        detail.put("globalDeviceId", req.getGlobalDeviceId());
+        detail.put("deviceSn", normalizeOptionalValue(req.getDeviceSn()));
+        detail.put("authIdentity", req.getAuthIdentity());
         detail.put("resultCode", resultCode);
         detail.put("resultMessage", resultMessage);
         DeviceEvent event = DeviceEvent.builder()
@@ -274,10 +290,24 @@ public class ProvisionServiceImpl implements ProvisionService {
         throw new BusinessException(ResultCode.VALIDATE_FAILED, "配网 Token 数据格式错误");
     }
 
-    private List<Device> findExistingDevices(String productKey, String deviceName) {
+    private List<Device> findExistingDevices(String productKey, String deviceSn, String deviceName) {
+        String normalizedDeviceSn = normalizeOptionalValue(deviceSn);
+        String normalizedDeviceName = normalizeOptionalValue(deviceName);
+        if (StringUtils.hasText(normalizedDeviceSn)) {
+            LambdaQueryWrapper<Device> bySnQuery = new LambdaQueryWrapper<>();
+            bySnQuery.eq(Device::getDeviceSn, normalizedDeviceSn);
+            List<Device> devices = deviceRepository.selectList(bySnQuery);
+            if (!devices.isEmpty()) {
+                ensureProductMatched(productKey, devices.get(0));
+                return devices;
+            }
+        }
+        if (!StringUtils.hasText(normalizedDeviceName)) {
+            return List.of();
+        }
         LambdaQueryWrapper<Device> existedQuery = new LambdaQueryWrapper<>();
         existedQuery.eq(Device::getProductKey, productKey)
-                .eq(Device::getDeviceName, deviceName);
+                .eq(Device::getDeviceName, normalizedDeviceName);
         return deviceRepository.selectList(existedQuery);
     }
 
@@ -305,12 +335,120 @@ public class ProvisionServiceImpl implements ProvisionService {
                 : device == null ? null : device.getId();
     }
 
-    private String resolveAuthIdentity(Device device) {
-        return device != null && StringUtils.hasText(device.getAuthIdentity())
-                ? device.getAuthIdentity()
-                : device == null ? null : device.getId();
+    private void mergeCompatibilityFields(Device device, ProvisionReq req, String resolvedDeviceName) {
+        if (device == null || req == null) {
+            return;
+        }
+        boolean changed = false;
+        boolean shouldBackfillDeviceName = req.getDeviceName() != null || !StringUtils.hasText(device.getDeviceName());
+        if (shouldBackfillDeviceName
+                && StringUtils.hasText(resolvedDeviceName)
+                && !Objects.equals(device.getDeviceName(), resolvedDeviceName)) {
+            device.setDeviceName(resolvedDeviceName);
+            changed = true;
+        }
+        if (req.getGlobalDeviceId() != null) {
+            String globalDeviceId = StringUtils.hasText(req.getGlobalDeviceId()) ? req.getGlobalDeviceId() : device.getId();
+            if (!Objects.equals(device.getGlobalDeviceId(), globalDeviceId)) {
+                device.setGlobalDeviceId(globalDeviceId);
+                changed = true;
+            }
+        } else if (!StringUtils.hasText(device.getGlobalDeviceId())) {
+            device.setGlobalDeviceId(device.getId());
+            changed = true;
+        }
+        if (req.getDeviceSn() != null) {
+            String deviceSn = StringUtils.hasText(req.getDeviceSn()) ? req.getDeviceSn() : null;
+            if (!Objects.equals(device.getDeviceSn(), deviceSn)) {
+                device.setDeviceSn(deviceSn);
+                changed = true;
+            }
+        }
+        if (req.getAuthIdentity() != null) {
+            String authIdentity = StringUtils.hasText(req.getAuthIdentity())
+                    ? req.getAuthIdentity()
+                    : resolveAuthIdentity(device);
+            if (!Objects.equals(device.getAuthIdentity(), authIdentity)) {
+                device.setAuthIdentity(authIdentity);
+                changed = true;
+            }
+        } else if (!StringUtils.hasText(device.getAuthIdentity())) {
+            device.setAuthIdentity(resolveAuthIdentity(device));
+            changed = true;
+        }
+        if (changed) {
+            deviceRepository.updateById(device);
+        }
     }
 
-    private record ProvisionTokenPayload(String homeId, String productKey, String deviceName) {
+    private boolean isProvisionIdentityMatched(ProvisionTokenPayload payload,
+                                               String productKey,
+                                               String deviceSn,
+                                               String deviceName) {
+        if (!Objects.equals(payload.productKey(), productKey)) {
+            return false;
+        }
+        String expectedDeviceSn = normalizeOptionalValue(payload.deviceSn());
+        if (StringUtils.hasText(expectedDeviceSn)) {
+            return Objects.equals(expectedDeviceSn, normalizeOptionalValue(deviceSn));
+        }
+        String expectedDeviceName = normalizeOptionalValue(payload.deviceName());
+        return Objects.equals(expectedDeviceName, normalizeOptionalValue(deviceName));
+    }
+
+    private String buildProvisionIdentityKey(String productKey, String deviceSn, String deviceName) {
+        String normalizedDeviceSn = normalizeOptionalValue(deviceSn);
+        if (StringUtils.hasText(normalizedDeviceSn)) {
+            return productKey + ":sn:" + normalizedDeviceSn;
+        }
+        return productKey + ":name:" + normalizeOptionalValue(deviceName);
+    }
+
+    private String resolveProvisionDeviceName(ProvisionTokenPayload payload, ProvisionReq req) {
+        String resolved = firstNonBlank(
+                normalizeOptionalValue(req.getDeviceName()),
+                normalizeOptionalValue(payload.deviceName()),
+                normalizeOptionalValue(req.getDeviceSn()),
+                normalizeOptionalValue(payload.deviceSn())
+        );
+        if (!StringUtils.hasText(resolved)) {
+            throw new BusinessException(ResultCode.VALIDATE_FAILED, "deviceSn 或 deviceName 至少传一个");
+        }
+        return resolved;
+    }
+
+    private String firstNonBlank(String... values) {
+        for (String value : values) {
+            if (StringUtils.hasText(value)) {
+                return value;
+            }
+        }
+        return null;
+    }
+
+    private String normalizeOptionalValue(String value) {
+        return StringUtils.hasText(value) ? value.trim() : null;
+    }
+
+    private void ensureProductMatched(String productKey, Device device) {
+        if (device != null && !Objects.equals(device.getProductKey(), productKey)) {
+            throw new BusinessException(ResultCode.VALIDATE_FAILED, "设备产品与配网请求不匹配");
+        }
+    }
+
+    private String resolveAuthIdentity(Device device) {
+        if (device == null) {
+            return null;
+        }
+        if (StringUtils.hasText(device.getAuthIdentity())) {
+            return device.getAuthIdentity();
+        }
+        if (StringUtils.hasText(device.getDeviceSn())) {
+            return device.getDeviceSn();
+        }
+        return resolveGlobalDeviceId(device);
+    }
+
+    private record ProvisionTokenPayload(String homeId, String productKey, String deviceSn, String deviceName) {
     }
 }

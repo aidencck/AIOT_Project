@@ -2,6 +2,7 @@ package com.aiot.device.controller;
 
 import com.aiot.device.dto.OtaUpgradeReportReq;
 import com.aiot.device.service.OtaService;
+import io.swagger.v3.oas.annotations.Hidden;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import org.springframework.validation.annotation.Validated;
@@ -11,6 +12,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+@Hidden
 @RestController
 @Validated
 @RequestMapping("/api/v1/internal/ota")

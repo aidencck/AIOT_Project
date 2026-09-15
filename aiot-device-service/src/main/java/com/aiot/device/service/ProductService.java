@@ -10,4 +10,5 @@ public interface ProductService {
     ProductResp getProductByKey(String productKey);
     List<ProductResp> listProducts();
     void updateThingModel(String productKey, String thingModelJson);
+    void deleteProduct(String productKey);
 }

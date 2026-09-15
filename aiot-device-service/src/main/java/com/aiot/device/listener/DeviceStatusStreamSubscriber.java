@@ -2,6 +2,7 @@ package com.aiot.device.listener;
 
 import com.aiot.common.event.DeviceEvent;
 import com.aiot.common.event.DeviceEventType;
+import com.aiot.device.service.DeviceEventHistoryService;
 import com.aiot.device.service.DeviceStatusBufferService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
@@ -11,6 +12,7 @@ import org.springframework.data.redis.connection.stream.StreamRecords;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.stream.StreamListener;
 import org.springframework.stereotype.Component;
+import org.springframework.util.StringUtils;
 
 import java.time.Instant;
 import java.util.LinkedHashMap;
@@ -22,6 +24,7 @@ public class DeviceStatusStreamSubscriber implements StreamListener<String, MapR
 
     private final ObjectMapper objectMapper;
     private final DeviceStatusBufferService bufferService;
+    private final DeviceEventHistoryService deviceEventHistoryService;
     private final StringRedisTemplate stringRedisTemplate;
     private final String deviceStatusStream;
     private final String dlqStream;
@@ -30,12 +33,14 @@ public class DeviceStatusStreamSubscriber implements StreamListener<String, MapR
     public DeviceStatusStreamSubscriber(
             ObjectMapper objectMapper,
             DeviceStatusBufferService bufferService,
+            DeviceEventHistoryService deviceEventHistoryService,
             StringRedisTemplate stringRedisTemplate,
             @Value("${aiot.events.device-status-stream:aiot:stream:device-event}") String deviceStatusStream,
             @Value("${aiot.events.device-status-dlq-stream:aiot:stream:device-event:dlq}") String dlqStream,
             @Value("${aiot.events.device-status-stream-group:aiot-device-service-group}") String group) {
         this.objectMapper = objectMapper;
         this.bufferService = bufferService;
+        this.deviceEventHistoryService = deviceEventHistoryService;
         this.stringRedisTemplate = stringRedisTemplate;
         this.deviceStatusStream = deviceStatusStream;
         this.dlqStream = dlqStream;
@@ -53,12 +58,23 @@ public class DeviceStatusStreamSubscriber implements StreamListener<String, MapR
             }
             DeviceEvent event = objectMapper.readValue(body, DeviceEvent.class);
             Integer status = mapStatus(event.getEventType());
-            if (status == null) {
+            if (status == null || !StringUtils.hasText(event.getDeviceId())) {
                 shouldAck = true;
                 return;
             }
-            bufferService.enqueue(event.getDeviceId(), status);
-            shouldAck = true;
+            // 先记录 per-device 事件历史，避免 buffer 失败导致历史丢失；record 内部已吞掉异常。
+            deviceEventHistoryService.record(
+                    event.getDeviceId(),
+                    event.getEventType().name(),
+                    status,
+                    System.currentTimeMillis());
+            DeviceStatusBufferService.EnqueueResult result =
+                    bufferService.enqueue(event.getDeviceId(), status, message.getId().getValue());
+            if (result == DeviceStatusBufferService.EnqueueResult.DROPPED_OVERFLOW) {
+                log.warn("Device status buffer overflow, keep stream record pending for retry, stream={}, recordId={}, deviceId={}",
+                        message.getStream(), message.getId(), event.getDeviceId());
+            }
+            // Buffered path: ACK is deferred until DeviceStatusBufferService.flush() persists to MySQL.
         } catch (Exception ex) {
             shouldAck = publishToDlq(message, body, ex);
             log.warn("Failed to consume device status stream event, stream={}, recordId={}",

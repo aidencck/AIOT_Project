@@ -12,6 +12,8 @@ public class DeviceReq {
     @NotBlank(message = "productKey 不能为空")
     @Size(max = 64, message = "productKey 长度不能超过64")
     private String productKey;
+    @Size(max = 64, message = "globalDeviceId 长度不能超过64")
+    private String globalDeviceId;
     @Size(max = 64, message = "deviceSn 长度不能超过64")
     private String deviceSn;
     @Size(max = 64, message = "authIdentity 长度不能超过64")

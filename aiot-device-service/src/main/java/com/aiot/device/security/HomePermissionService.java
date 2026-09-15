@@ -16,12 +16,15 @@ import org.springframework.web.reactive.function.client.WebClient;
 public class HomePermissionService {
 
     private final CrossServiceHttpExecutor crossServiceHttpExecutor;
+    private final WebClient.Builder webClientBuilder;
 
-    public HomePermissionService(CrossServiceHttpExecutor crossServiceHttpExecutor) {
+    public HomePermissionService(CrossServiceHttpExecutor crossServiceHttpExecutor,
+                                 WebClient.Builder webClientBuilder) {
         this.crossServiceHttpExecutor = crossServiceHttpExecutor;
+        this.webClientBuilder = webClientBuilder;
     }
 
-    @Value("${aiot.home-service.base-url:http://127.0.0.1:8083}")
+    @Value("${aiot.home-service.base-url:lb://aiot-home-service}")
     private String homeServiceBaseUrl;
 
     @Value("${aiot.internal.token:}")
@@ -45,7 +48,8 @@ public class HomePermissionService {
 
         Result<Boolean> result = crossServiceHttpExecutor.execute(
                 "device-home-permission",
-                () -> WebClient.builder()
+                () -> webClientBuilder
+                        .clone()
                         .baseUrl(baseUrl)
                         .defaultHeader("X-Internal-Token", internalToken)
                         .defaultHeader("X-User-Id", userInfo.getUserId())
@@ -83,7 +87,8 @@ public class HomePermissionService {
 
         Result<HomeRoomRelationCheckResp> result = crossServiceHttpExecutor.execute(
                 "device-home-relation",
-                () -> WebClient.builder()
+                () -> webClientBuilder
+                        .clone()
                         .baseUrl(baseUrl)
                         .defaultHeader("X-Internal-Token", internalToken)
                         .build()
