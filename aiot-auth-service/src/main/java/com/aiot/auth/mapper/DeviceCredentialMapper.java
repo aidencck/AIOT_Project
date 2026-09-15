@@ -10,7 +10,10 @@ import org.apache.ibatis.annotations.Select;
 public interface DeviceCredentialMapper extends BaseMapper<DeviceCredential> {
 
     @Select("""
-            SELECT dc.*
+            SELECT dc.*,
+                   di.global_device_id AS globalDeviceId,
+                   di.auth_identity AS authIdentity,
+                   di.device_sn AS deviceSn
             FROM device_credential dc
             INNER JOIN device_info di ON di.id = dc.device_id
             WHERE dc.is_deleted = 0

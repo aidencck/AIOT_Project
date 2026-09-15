@@ -1,36 +1,31 @@
+spring.config.import: optional:classpath:application-common.yml
+
 server:
   port: 8082
+  # webhook 高并发入口：提升线程与连接队列容量，避免 1000 并发下 Tomcat 线程耗尽导致网关 503/504
+  tomcat:
+    threads:
+      max: 500
+      min-spare: 50
+    accept-count: 500
+    max-connections: 4096
 
 spring:
   application:
     name: aiot-auth-service
-  config:
-    import: optional:nacos:${spring.application.name}.yaml?group=${NACOS_CONFIG_GROUP:DEFAULT_GROUP}&namespace=${NACOS_NAMESPACE:public}
-  cloud:
-    nacos:
-      discovery:
-        server-addr: ${NACOS_ADDR:127.0.0.1:8848}
-        namespace: ${NACOS_NAMESPACE:public}
-        group: ${NACOS_DISCOVERY_GROUP:DEFAULT_GROUP}
-        register-enabled: ${NACOS_REGISTER_ENABLED:true}
-        username: ${NACOS_USERNAME:}
-        password: ${NACOS_PASSWORD:}
-      config:
-        server-addr: ${NACOS_ADDR:127.0.0.1:8848}
-        namespace: ${NACOS_NAMESPACE:public}
-        group: ${NACOS_CONFIG_GROUP:DEFAULT_GROUP}
-        file-extension: yaml
-        username: ${NACOS_USERNAME:}
-        password: ${NACOS_PASSWORD:}
   datasource:
     driver-class-name: com.mysql.cj.jdbc.Driver
-    url: jdbc:mysql://${MYSQL_HOST:127.0.0.1:3306}/aiot_cloud?useUnicode=true&characterEncoding=utf-8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
+    url: jdbc:mysql://${MYSQL_HOST:127.0.0.1}:${MYSQL_PORT:3306}/${MYSQL_DB:aiot_cloud}?useUnicode=true&characterEncoding=utf-8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
     username: ${MYSQL_USER}
     password: ${MYSQL_PASSWORD}
-  data:
-    redis:
-      host: ${REDIS_HOST:127.0.0.1}
-      port: 6379
+    hikari:
+      maximum-pool-size: 64
+      minimum-idle: 16
+      connection-timeout: 30000
+      max-lifetime: 1500000
+      idle-timeout: 600000
+      keepalive-time: 120000
+      connection-test-query: SELECT 1
 
 mybatis-plus:
   mapper-locations: classpath*:/mapper/**/*.xml
@@ -41,51 +36,13 @@ mybatis-plus:
       logic-delete-value: 1
       logic-not-delete-value: 0
 
-springdoc:
-  api-docs:
-    path: /v3/api-docs
-  swagger-ui:
-    path: /swagger-ui.html
-    tags-sorter: alpha
-    operations-sorter: alpha
-
 aiot:
-  internal:
-    token: ${AIOT_INTERNAL_TOKEN}
+  security:
+    validate:
+      entries: "aiot.internal.token:24,aiot.emqx.webhook.secret:24"
   events:
-    device-status-stream: ${AIOT_EVENTS_DEVICE_STATUS_STREAM:aiot:stream:device-event}
-    device-status-stream-dlq: ${AIOT_EVENTS_DEVICE_STATUS_STREAM_DLQ:aiot:stream:device-event:dlq}
     publish-max-retries: ${AIOT_EVENTS_PUBLISH_MAX_RETRIES:2}
   emqx:
     webhook:
       secret: ${AIOT_EMQX_WEBHOOK_SECRET}
       max-skew-seconds: ${AIOT_EMQX_WEBHOOK_MAX_SKEW_SECONDS:300}
-
-management:
-  endpoints:
-    web:
-      exposure:
-        include: health,info,prometheus
-  endpoint:
-    health:
-      probes:
-        enabled: true
-      show-details: when_authorized
-  health:
-    livenessstate:
-      enabled: true
-    readinessstate:
-      enabled: true
-  prometheus:
-    metrics:
-      export:
-        enabled: true
-  metrics:
-    tags:
-      application: ${spring.application.name}
-      env: ${AIOT_ENV:local}
-    distribution:
-      percentiles-histogram:
-        http:
-          server:
-            requests: true

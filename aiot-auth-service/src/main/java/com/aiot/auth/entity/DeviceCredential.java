@@ -28,6 +28,15 @@ public class DeviceCredential {
 
     private String deviceSecret;
 
+    @TableField(exist = false)
+    private String globalDeviceId;
+
+    @TableField(exist = false)
+    private String authIdentity;
+
+    @TableField(exist = false)
+    private String deviceSn;
+
     @TableField(fill = FieldFill.INSERT)
     private LocalDateTime createTime;
 

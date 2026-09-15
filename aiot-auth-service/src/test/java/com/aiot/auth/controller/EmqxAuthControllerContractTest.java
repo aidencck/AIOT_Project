@@ -1,5 +1,6 @@
 package com.aiot.auth.controller;
 
+import com.aiot.auth.service.AuthMetrics;
 import com.aiot.auth.service.AuthService;
 import com.aiot.common.exception.GlobalExceptionHandler;
 import com.fasterxml.jackson.core.type.TypeReference;
@@ -30,10 +31,13 @@ class EmqxAuthControllerContractTest {
 
     private AuthService authService;
 
+    private AuthMetrics authMetrics;
+
     @BeforeEach
     void setUp() {
         authService = mock(AuthService.class);
-        EmqxAuthController controller = new EmqxAuthController(authService);
+        authMetrics = mock(AuthMetrics.class);
+        EmqxAuthController controller = new EmqxAuthController(authService, authMetrics);
         mockMvc = MockMvcBuilders.standaloneSetup(controller)
                 .setControllerAdvice(new GlobalExceptionHandler())
                 .build();
