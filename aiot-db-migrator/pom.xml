@@ -1,0 +1,78 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <parent>
+        <groupId>com.aiot.cloud</groupId>
+        <artifactId>aiot-cloud-parent</artifactId>
+        <version>1.0.0-SNAPSHOT</version>
+    </parent>
+    <modelVersion>4.0.0</modelVersion>
+
+    <artifactId>aiot-db-migrator</artifactId>
+    <name>aiot-db-migrator</name>
+    <description>Flyway-based database migrator for aiot_cloud and aiot_home</description>
+
+    <dependencies>
+        <dependency>
+            <groupId>org.flywaydb</groupId>
+            <artifactId>flyway-core</artifactId>
+            <version>${flyway.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.flywaydb</groupId>
+            <artifactId>flyway-mysql</artifactId>
+            <version>${flyway.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>com.mysql</groupId>
+            <artifactId>mysql-connector-j</artifactId>
+            <scope>runtime</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.flywaydb</groupId>
+                <artifactId>flyway-maven-plugin</artifactId>
+                <version>${flyway.version}</version>
+                <dependencies>
+                    <dependency>
+                        <groupId>org.flywaydb</groupId>
+                        <artifactId>flyway-mysql</artifactId>
+                        <version>${flyway.version}</version>
+                    </dependency>
+                </dependencies>
+                <configuration>
+                    <configFiles>
+                        <configFile>${project.basedir}/flyway-migration.conf</configFile>
+                    </configFiles>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
+
+    <profiles>
+        <profile>
+            <id>aiot-cloud</id>
+            <properties>
+                <flyway.url>${env.FLYWAY_AIOT_CLOUD_URL}</flyway.url>
+                <flyway.user>${env.FLYWAY_AIOT_CLOUD_USER}</flyway.user>
+                <flyway.password>${env.FLYWAY_AIOT_CLOUD_PASSWORD}</flyway.password>
+                <flyway.locations>filesystem:${project.basedir}/src/main/resources/db/migration/aiot_cloud</flyway.locations>
+                <flyway.table>flyway_schema_history_aiot_cloud</flyway.table>
+            </properties>
+        </profile>
+        <profile>
+            <id>aiot-home</id>
+            <properties>
+                <flyway.url>${env.FLYWAY_AIOT_HOME_URL}</flyway.url>
+                <flyway.user>${env.FLYWAY_AIOT_HOME_USER}</flyway.user>
+                <flyway.password>${env.FLYWAY_AIOT_HOME_PASSWORD}</flyway.password>
+                <flyway.locations>filesystem:${project.basedir}/src/main/resources/db/migration/aiot_home</flyway.locations>
+                <flyway.table>flyway_schema_history_aiot_home</flyway.table>
+            </properties>
+        </profile>
+    </profiles>
+</project>

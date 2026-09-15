@@ -16,11 +16,8 @@ CREATE TABLE IF NOT EXISTS `product_info` (
 -- 设备信息表
 CREATE TABLE IF NOT EXISTS `device_info` (
   `id` varchar(64) NOT NULL COMMENT '主键ID',
-  `global_device_id` varchar(64) NOT NULL COMMENT '全局设备ID',
   `device_name` varchar(64) NOT NULL COMMENT '设备名称',
   `product_key` varchar(64) NOT NULL COMMENT '所属产品Key',
-  `device_sn` varchar(64) DEFAULT NULL COMMENT '设备序列号',
-  `auth_identity` varchar(64) NOT NULL COMMENT '设备认证身份',
   `status` tinyint(1) DEFAULT '0' COMMENT '状态: 0-未激活, 1-在线, 2-离线',
   `home_id` varchar(64) DEFAULT NULL COMMENT '所属家庭',
   `room_id` varchar(64) DEFAULT NULL COMMENT '所属房间',
@@ -31,9 +28,6 @@ CREATE TABLE IF NOT EXISTS `device_info` (
   `update_time` datetime DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
   `is_deleted` tinyint(1) DEFAULT '0' COMMENT '逻辑删除',
   PRIMARY KEY (`id`),
-  UNIQUE KEY `uk_global_device_id` (`global_device_id`),
-  UNIQUE KEY `uk_device_sn` (`device_sn`),
-  UNIQUE KEY `uk_auth_identity` (`auth_identity`),
   UNIQUE KEY `uk_product_device_name_deleted` (`product_key`, `device_name`, `is_deleted`),
   KEY `idx_home_id` (`home_id`),
   KEY `idx_gateway_id` (`gateway_id`),

@@ -1,50 +1,118 @@
 <?xml version="1.0" encoding="UTF-8"?>
+<!-- 声明XML版本和编码，是Maven POM文件的标准XML头部 -->
 <project xmlns="http://maven.apache.org/POM/4.0.0"
          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <!-- 声明Maven POM模型版本，固定为4.0.0，所有Maven3项目都需遵循此版本规范 -->
     <modelVersion>4.0.0</modelVersion>
 
+    <!-- 项目的组织唯一标识，通常对应Java包名结构 -->
     <groupId>com.aiot.cloud</groupId>
+    <!-- 项目的模块唯一标识，本项目为父POM，ID为aiot-cloud-parent -->
     <artifactId>aiot-cloud-parent</artifactId>
+    <!-- 项目的版本号，SNAPSHOT表示为开发快照版本，用于持续集成环境 -->
     <version>1.0.0-SNAPSHOT</version>
+    <!-- 声明打包方式为pom，代表这是父聚合工程，不会编译为jar/war，仅用于管理子模块 -->
     <packaging>pom</packaging>
 
+    <!-- 项目的可读名称，用于Maven生成站点展示 -->
     <name>AIoT Cloud Parent</name>
+    <!-- 项目描述，说明本POM是AIoT后端系统架构的父POM，统一管理所有子模块 -->
     <description>AIoT Backend System Architecture Parent POM</description>
 
+    <!-- 聚合模块列表：声明当前父POM管理的所有子模块，Maven会按顺序构建这些模块 -->
     <modules>
+        <!-- ========== 第一层：底层核心依赖模块，所有上层模块都依赖此层，必须优先构建 -->
         <module>aiot-common</module>
-        <module>aiot-gateway</module>
-        <module>aiot-auth-service</module>
-        <module>aiot-device-service</module>
-        <module>aiot-mqtt-adapter</module>
-        <module>aiot-rule-engine</module>
-        <module>aiot-shadow-service</module>
+        <!-- 公共基础模块，提供所有子模块通用的工具类、常量、基础实体等，是第一个构建的模块，其他模块都依赖它 -->
+        <module>aiot-db-migrator</module>
+        <!-- 数据库迁移模块，管理所有业务数据库的版本化变更，使用Flyway实现，所有需要操作数据库的服务都依赖此模块完成初始化 -->
+
+        <!-- ========== 第二层：协议适配与数据处理模块，依赖第一层，为上层业务服务提供基础能力 -->
         <module>aiot-data-parser</module>
+        <!-- 数据解析模块，负责处理不同设备上报的非标数据，转换为统一格式的标准数据，设备接入类模块依赖此模块完成数据格式转换 -->
+        <module>aiot-mqtt-adapter</module>
+        <!-- MQTT协议适配模块，负责接入MQTT协议的物联网设备，实现设备消息的转发解析，依赖公共模块和数据解析模块 -->
+
+        <!-- ========== 第三层：核心业务支撑模块，依赖第一、二层，为上层场景化业务提供通用核心能力 -->
+        <module>aiot-auth-service</module>
+        <!-- 认证授权服务模块，处理用户登录、权限校验、Token生成等安全能力，所有需要权限校验的模块都依赖此服务 -->
+        <module>aiot-device-service</module>
+        <!-- 设备管理服务模块，负责物联网设备的生命周期管理、状态维护等核心业务，依赖认证授权服务完成设备身份校验 -->
+        <module>aiot-shadow-service</module>
+        <!-- 设备影子服务模块，维护设备的状态快照，同步设备与云端的状态一致性，依赖设备管理服务获取设备基础信息 -->
+        <module>aiot-rule-engine</module>
+        <!-- 规则引擎模块，提供设备联动、自动化规则配置与执行的能力，依赖设备影子服务获取设备实时状态 -->
+
+        <!-- ========== 第四层：场景化业务模块，依赖所有下层模块，实现具体领域的业务逻辑 -->
         <module>aiot-home-service</module>
+        <!-- 智慧家庭业务模块，提供家庭空间管理、家庭设备分组等场景化业务能力，依赖设备管理、规则引擎等核心模块 -->
+
+        <!-- ========== 第五层：流量入口模块，最后构建，依赖所有业务模块完成请求路由转发 -->
+        <module>aiot-gateway</module>
+        <!-- API网关模块，负责所有请求的路由、限流、权限拦截等入口处理，依赖公共模块和认证授权服务，所有业务模块启动完成后最后构建网关 -->
     </modules>
 
+    <!-- 属性配置块：统一配置所有全局变量，包括构建配置、依赖版本、框架版本等，所有子模块可直接引用 -->
     <properties>
+        <!-- Java语言版本，声明使用Java17进行编译和运行 -->
         <java.version>17</java.version>
+        <!-- Maven编译器的源码兼容版本，和Java版本保持一致 -->
         <maven.compiler.source>17</maven.compiler.source>
+        <!-- Maven编译器的目标字节码版本，和Java版本保持一致 -->
         <maven.compiler.target>17</maven.compiler.target>
+        <!-- 项目源码的字符编码，统一为UTF-8避免乱码问题 -->
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <!-- JaCoCo测试覆盖率工具的版本，JaCoCo用于统计单元测试的代码覆盖情况 -->
         <jacoco.version>0.8.12</jacoco.version>
+        <!-- ArchUnit架构校验工具的版本，ArchUnit用于校验项目的代码架构是否符合预设规则 -->
+        <archunit.version>1.3.0</archunit.version>
+        <!-- Maven Enforcer强制规则插件的版本，用于在构建前校验环境、依赖等是否符合要求 -->
+        <maven.enforcer.version>3.5.0</maven.enforcer.version>
+        <!-- Maven Clean清理插件的版本，负责清理项目的编译输出目录 -->
+        <maven.clean.version>3.2.0</maven.clean.version>
+        <!-- Maven Resources资源处理插件的版本，负责将项目的资源文件复制到输出目录 -->
+        <maven.resources.version>3.4.0</maven.resources.version>
+        <!-- Maven Surefire单元测试插件的版本，负责执行项目的单元测试用例 -->
+        <maven.surefire.version>3.5.4</maven.surefire.version>
+        <!-- Maven Failsafe集成测试插件的版本，负责执行 *IT 集成测试 -->
+        <maven.failsafe.version>3.5.4</maven.failsafe.version>
+        <!-- Maven Jar打包插件的版本，负责将项目编译后的字节码打包为jar文件 -->
+        <maven.jar.version>3.5.0</maven.jar.version>
+        <!-- Maven Install安装插件的版本，负责将构建好的jar安装到本地Maven仓库 -->
+        <maven.install.version>3.1.4</maven.install.version>
+        <!-- Maven Deploy部署插件的版本，负责将构建好的jar部署到远程Maven仓库 -->
+        <maven.deploy.version>3.1.4</maven.deploy.version>
+        <!-- Maven Site站点生成插件的版本，负责生成项目的文档站点 -->
+        <maven.site.version>3.12.1</maven.site.version>
+        <!-- Flyway数据库迁移工具的版本，用于管理数据库脚本的版本化执行 -->
+        <flyway.version>10.17.3</flyway.version>
+        <!-- 单元测试行覆盖率最低阈值，要求至少60%的代码行被测试覆盖 -->
         <coverage.line.minimum>0.60</coverage.line.minimum>
+        <!-- 单元测试分支覆盖率最低阈值，要求至少40%的代码分支被测试覆盖 -->
         <coverage.branch.minimum>0.40</coverage.branch.minimum>
         <!-- Framework Versions -->
+        <!-- SpringBoot框架版本，3.2.3是支持Java17的稳定版本 -->
         <spring-boot.version>3.2.3</spring-boot.version>
-        <spring-cloud.version>2023.0.0</spring-cloud.version>
-        <spring-cloud-alibaba.version>2022.0.0.0-RC2</spring-cloud-alibaba.version>
+        <!-- SpringCloud微服务框架版本，2023.0.1是2023.0系列首个patch，兼容SpringBoot3.2.x -->
+        <spring-cloud.version>2023.0.1</spring-cloud.version>
+        <!-- Spring Cloud Alibaba 框架版本，与 Spring Cloud 2023.0.1 / Spring Boot 3.2.x 适配 -->
+        <spring-cloud-alibaba.version>2023.0.1.0</spring-cloud-alibaba.version>
+        <!-- Lombok注解工具版本，用于减少Java样板代码，如getter/setter的自动生成 -->
         <lombok.version>1.18.30</lombok.version>
+        <!-- MyBatis-Plus持久层框架版本，对MyBatis的增强框架，简化数据库操作 -->
         <mybatis-plus.version>3.5.5</mybatis-plus.version>
+        <!-- MySQL数据库驱动版本，8.0.33适配MySQL8.x的最新稳定驱动 -->
         <mysql.version>8.0.33</mysql.version>
+        <!-- SpringDoc OpenAPI文档工具版本，用于自动生成接口文档，对接Swagger UI -->
         <springdoc.version>2.5.0</springdoc.version>
     </properties>
 
+    <!-- 依赖管理块：父POM中统一管理所有子模块的依赖版本，子模块引用依赖时无需再声明版本，实现版本统一管控 -->
     <dependencyManagement>
         <dependencies>
             <!-- Spring Boot Dependencies -->
+            <!-- 引入SpringBoot的依赖管理BOM，导入SpringBoot生态所有组件的版本配置，避免逐个声明版本 -->
             <dependency>
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-dependencies</artifactId>
@@ -53,6 +121,7 @@
                 <scope>import</scope>
             </dependency>
             <!-- Spring Cloud Dependencies -->
+            <!-- 引入SpringCloud的依赖管理BOM，导入SpringCloud生态所有组件的版本配置 -->
             <dependency>
                 <groupId>org.springframework.cloud</groupId>
                 <artifactId>spring-cloud-dependencies</artifactId>
@@ -61,6 +130,7 @@
                 <scope>import</scope>
             </dependency>
             <!-- Spring Cloud Alibaba Dependencies -->
+            <!-- 引入 Spring Cloud Alibaba 依赖管理 BOM，统一管理 Nacos 等 Alibaba 组件版本 -->
             <dependency>
                 <groupId>com.alibaba.cloud</groupId>
                 <artifactId>spring-cloud-alibaba-dependencies</artifactId>
@@ -68,80 +138,274 @@
                 <type>pom</type>
                 <scope>import</scope>
             </dependency>
-            
             <!-- Inner Modules Dependencies -->
+            <!-- 管理内部公共子模块的依赖，所有需要依赖aiot-common的子模块直接引入即可使用统一版本 -->
             <dependency>
                 <groupId>com.aiot.cloud</groupId>
                 <artifactId>aiot-common</artifactId>
                 <version>${project.version}</version>
             </dependency>
+            <dependency>
+                <groupId>org.projectlombok</groupId>
+                <artifactId>lombok</artifactId>
+                <version>${lombok.version}</version>
+            </dependency>
 
             <!-- 持久化层及数据库驱动 -->
+            <!-- 管理MyBatis-Plus的SpringBoot3 Starter依赖，统一版本避免子模块版本不一致 -->
             <dependency>
                 <groupId>com.baomidou</groupId>
                 <artifactId>mybatis-plus-spring-boot3-starter</artifactId>
                 <version>${mybatis-plus.version}</version>
             </dependency>
+            <!-- 管理MySQL官方的新一代JDBC驱动依赖，替代旧的mysql-connector-java -->
             <dependency>
-                <groupId>mysql</groupId>
-                <artifactId>mysql-connector-java</artifactId>
+                <groupId>com.mysql</groupId>
+                <artifactId>mysql-connector-j</artifactId>
                 <version>${mysql.version}</version>
             </dependency>
+            <!-- 管理SpringDoc的OpenAPI UI依赖，用于生成接口文档和可视化调试页面 -->
             <dependency>
                 <groupId>org.springdoc</groupId>
                 <artifactId>springdoc-openapi-starter-webmvc-ui</artifactId>
                 <version>${springdoc.version}</version>
             </dependency>
+            <!-- 网关(WebFlux)专用OpenAPI UI依赖，版本与webmvc-ui保持一致 -->
+            <dependency>
+                <groupId>org.springdoc</groupId>
+                <artifactId>springdoc-openapi-starter-webflux-ui</artifactId>
+                <version>${springdoc.version}</version>
+            </dependency>
+            <!-- 管理ArchUnit的JUnit5集成依赖，用于编写单元测试校验代码架构规则 -->
+            <dependency>
+                <groupId>com.tngtech.archunit</groupId>
+                <artifactId>archunit-junit5</artifactId>
+                <version>${archunit.version}</version>
+            </dependency>
         </dependencies>
     </dependencyManagement>
 
+    <!-- 构建配置块：配置项目的所有构建相关逻辑，包括插件管理、插件执行等 -->
     <build>
+        <!-- 插件管理块：统一管理所有子模块使用的Maven插件版本，子模块引用插件时无需声明版本 -->
+        <pluginManagement>
+            <plugins>
+                <!-- 统一管理maven-clean插件的版本，所有子模块都继承此版本 -->
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-clean-plugin</artifactId>
+                    <version>${maven.clean.version}</version>
+                </plugin>
+                <!-- 统一管理maven-resources插件的版本 -->
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-resources-plugin</artifactId>
+                    <version>${maven.resources.version}</version>
+                </plugin>
+                <!-- 统一管理maven-surefire单元测试插件的版本 -->
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-surefire-plugin</artifactId>
+                    <version>${maven.surefire.version}</version>
+                </plugin>
+                <!-- 统一管理maven-failsafe集成测试插件的版本 -->
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-failsafe-plugin</artifactId>
+                    <version>${maven.failsafe.version}</version>
+                </plugin>
+                <!-- 统一管理maven-jar打包插件的版本 -->
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-jar-plugin</artifactId>
+                    <version>${maven.jar.version}</version>
+                </plugin>
+                <!-- 统一管理maven-install安装插件的版本 -->
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-install-plugin</artifactId>
+                    <version>${maven.install.version}</version>
+                </plugin>
+                <!-- 统一管理maven-deploy部署插件的版本 -->
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-deploy-plugin</artifactId>
+                    <version>${maven.deploy.version}</version>
+                </plugin>
+                <!-- 统一管理maven-site站点生成插件的版本 -->
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-site-plugin</artifactId>
+                    <version>${maven.site.version}</version>
+                </plugin>
+            </plugins>
+        </pluginManagement>
+        <!-- 父POM自身使用的插件列表，这些插件的配置会继承给所有子模块 -->
         <plugins>
+            <!-- 引入maven-enforcer-enforcer插件，在构建的最早阶段执行环境和依赖校验，阻止不符合要求的构建执行 -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-enforcer-plugin</artifactId>
+                <version>${maven.enforcer.version}</version>
+                <executions>
+                    <!-- 配置插件的执行规则 -->
+                    <execution>
+                        <!-- 执行规则的唯一标识 -->
+                        <id>enforce-build-governance</id>
+                        <!-- 绑定到Maven生命周期的validate阶段，这是Maven构建流程的第一个阶段，最先执行 -->
+                        <phase>validate</phase>
+                        <!-- 执行插件的enforcer目标，触发所有规则的校验 -->
+                        <goals>
+                            <goal>enforce</goal>
+                        </goals>
+                        <!-- 插件的具体规则配置 -->
+                        <configuration>
+                            <rules>
+                                <!-- 要求Maven版本必须大于等于3.8.6，避免旧版本Maven的兼容性问题 -->
+                                <requireMavenVersion>
+                                    <version>[3.8.6,)</version>
+                                </requireMavenVersion>
+                                <!-- 要求Java版本必须是17.x，不支持低于17或高于等于18的版本，和项目编译版本一致 -->
+                                <requireJavaVersion>
+                                    <version>[17,18)</version>
+                                </requireJavaVersion>
+                                <!-- 要求所有插件都声明明确的版本，避免使用未版本化的插件带来的不确定性 -->
+                                <requirePluginVersions/>
+                                <!-- 禁止项目中出现重复的依赖版本，避免依赖冲突 -->
+                                <banDuplicatePomDependencyVersions/>
+                                <!-- 禁止使用旧的MySQL驱动mysql:mysql-connector-java，强制统一使用新的驱动包 -->
+                                <bannedDependencies>
+                                    <excludes>
+                                        <exclude>mysql:mysql-connector-java</exclude>
+                                    </excludes>
+                                    <message>Use com.mysql:mysql-connector-j managed by the parent POM.</message>
+                                </bannedDependencies>
+                            </rules>
+                            <!-- 只要有任何规则校验失败，就终止整个构建流程，严格强制执行规则 -->
+                            <fail>true</fail>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+            <!-- 引入maven-compiler编译插件，负责将Java源码编译为字节码，绑定到Maven的compile阶段执行 -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-compiler-plugin</artifactId>
                 <version>3.11.0</version>
                 <configuration>
+                    <!-- 编译的源码Java版本，和全局属性保持一致 -->
                     <source>${java.version}</source>
+                    <!-- 编译生成的字节码兼容的Java版本，和全局属性保持一致 -->
                     <target>${java.version}</target>
+                    <!-- 保留方法参数名称，让Spring等框架可以正确注入方法参数，避免添加-parameters编译参数 -->
+                    <parameters>true</parameters>
+                    <!-- 编译时使用的字符编码，和全局属性保持一致，避免源码编译乱码 -->
                     <encoding>${project.build.sourceEncoding}</encoding>
+                    <annotationProcessorPaths>
+                        <path>
+                            <groupId>org.projectlombok</groupId>
+                            <artifactId>lombok</artifactId>
+                            <version>${lombok.version}</version>
+                        </path>
+                    </annotationProcessorPaths>
                 </configuration>
             </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <configuration>
+                    <excludes>
+                        <exclude>**/*IT.java</exclude>
+                    </excludes>
+                </configuration>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-failsafe-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <id>run-integration-tests</id>
+                        <goals>
+                            <goal>integration-test</goal>
+                            <goal>verify</goal>
+                        </goals>
+                        <configuration>
+                            <includes>
+                                <include>**/*IT.java</include>
+                            </includes>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+            <!-- 引入jacoco-maven-plugin测试覆盖率插件，统计单元测试的代码覆盖情况，绑定到verify阶段执行 -->
             <plugin>
                 <groupId>org.jacoco</groupId>
                 <artifactId>jacoco-maven-plugin</artifactId>
                 <version>${jacoco.version}</version>
                 <executions>
+                    <!-- 第一个执行：在单元测试执行前注入JaCoCo代理，用于收集覆盖率数据 -->
                     <execution>
                         <id>jacoco-prepare-agent</id>
                         <goals>
                             <goal>prepare-agent</goal>
                         </goals>
                     </execution>
+                    <!-- 第二个执行：在单元测试执行完成后生成覆盖率报告，并校验覆盖率是否达标 -->
                     <execution>
                         <id>jacoco-report-and-check</id>
+                        <!-- 绑定到Maven生命周期的verify阶段，在单元测试执行完成后执行，晚于compile、test阶段 -->
                         <phase>verify</phase>
                         <goals>
+                            <!-- 生成html格式的覆盖率报告 -->
                             <goal>report</goal>
+                            <!-- 执行覆盖率阈值校验，如果不达标则构建失败 -->
                             <goal>check</goal>
                         </goals>
                         <configuration>
+                            <!-- 排除不需要统计覆盖率的代码，这些类通常是框架入口、数据模型、配置类，不需要单元测试覆盖 -->
                             <excludes>
                                 <exclude>**/*Application*</exclude>
+                                <!-- 排除SpringBoot启动类，只是框架入口，无业务逻辑 -->
                                 <exclude>**/dto/**</exclude>
+                                <!-- 排除数据传输对象类，仅用于数据封装，无业务逻辑 -->
                                 <exclude>**/entity/**</exclude>
+                                <!-- 排除数据库实体类，仅用于映射数据库表，无业务逻辑 -->
                                 <exclude>**/mapper/**</exclude>
+                                <!-- 排除数据库Mapper接口，仅用于数据库操作定义，无业务逻辑 -->
                                 <exclude>**/config/**</exclude>
+                                <!-- 排除配置类，仅用于框架配置，无业务逻辑 -->
+                                <exclude>**/api/**</exclude>
+                                <!-- 排除统一返回包装与枚举定义，这类结构性契约用专门契约测试保障 -->
+                                <exclude>**/event/**</exclude>
+                                <!-- 排除事件载体对象，这类对象主要依赖跨服务与E2E链路验证 -->
+                                <exclude>**/*Properties*</exclude>
+                                <!-- 排除配置属性载体类，由配置校验和启动验证覆盖 -->
+                                <exclude>**/*AutoConfiguration*</exclude>
+                                <!-- 排除自动装配类，由容器启动校验覆盖 -->
+                                <exclude>**/ai/client/**</exclude>
+                                <!-- 排除外部AI客户端适配层，由联调与契约验证覆盖 -->
+                                <exclude>**/ai/prompt/**</exclude>
+                                <!-- 排除静态Prompt注册表，由构建期校验覆盖 -->
+                                <exclude>**/http/TracePropagation*</exclude>
+                                <!-- 排除纯传输透传适配器，由运行时链路验证覆盖 -->
+                                <exclude>**/security/InternalTokenUtils*</exclude>
+                                <!-- 排除纯工具类，避免将非业务分支噪音纳入硬门禁 -->
+                                <exclude>**/security/jwt/BearerTokenResolver*</exclude>
+                                <!-- 排除纯请求头解析工具，交由切片测试覆盖 -->
                             </excludes>
+                            <!-- 覆盖率校验规则 -->
                             <rules>
                                 <rule>
+                                    <!-- 对整个项目的所有代码做整体校验 -->
                                     <element>BUNDLE</element>
                                     <limits>
+                                        <!-- 行覆盖率的阈值，最低要求达到全局配置的60% -->
                                         <limit>
                                             <counter>LINE</counter>
                                             <value>COVEREDRATIO</value>
                                             <minimum>${coverage.line.minimum}</minimum>
                                         </limit>
+                                        <!-- 分支覆盖率的阈值，最低要求达到全局配置的40% -->
                                         <limit>
                                             <counter>BRANCH</counter>
                                             <value>COVEREDRATIO</value>
