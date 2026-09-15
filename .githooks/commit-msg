@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+cd "$ROOT_DIR"
+
+if command -v node >/dev/null 2>&1 && [[ -d node_modules/.bin ]]; then
+  npx --no-install commitlint --edit "$1"
+else
+  echo "WARN: node 或本地 node_modules 未就绪，跳过 commitlint 校验（请执行 npm install 后重试）"
+fi
