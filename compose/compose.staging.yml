@@ -1,0 +1,73 @@
+version: '3.8'
+
+services:
+
+  mysql:
+    ports:
+      - "3306:3306"
+
+  redis:
+    ports:
+      - "6379:6379"
+
+  emqx:
+    ports:
+      - "1883:1883"
+      - "8088:8083"
+      - "18083:18083"
+
+  aiot-gateway:
+    ports:
+      - "8080:8080"
+    environment:
+      AIOT_ENV: staging
+      SPRING_PROFILES_ACTIVE: staging
+
+  aiot-device-service:
+    ports:
+      - "8081:8081"
+    environment:
+      AIOT_ENV: staging
+      SPRING_PROFILES_ACTIVE: staging
+
+  aiot-auth-service:
+    ports:
+      - "8082:8082"
+    environment:
+      AIOT_ENV: staging
+      SPRING_PROFILES_ACTIVE: staging
+
+  aiot-home-service:
+    ports:
+      - "8083:8083"
+    environment:
+      AIOT_ENV: staging
+      SPRING_PROFILES_ACTIVE: staging
+
+  aiot-rule-engine:
+    ports:
+      - "8084:8084"
+    environment:
+      AIOT_ENV: staging
+      SPRING_PROFILES_ACTIVE: staging
+
+  aiot-mqtt-adapter:
+    ports:
+      - "8085:8085"
+    environment:
+      AIOT_ENV: staging
+      SPRING_PROFILES_ACTIVE: staging
+
+  aiot-data-parser:
+    ports:
+      - "8086:8086"
+    environment:
+      AIOT_ENV: staging
+      SPRING_PROFILES_ACTIVE: staging
+
+  aiot-shadow-service:
+    ports:
+      - "8087:8087"
+    environment:
+      AIOT_ENV: staging
+      SPRING_PROFILES_ACTIVE: staging

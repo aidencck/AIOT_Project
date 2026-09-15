@@ -9,17 +9,13 @@ SHELL := /bin/bash
 # 初始化要求：首次执行前需确保aiotctl有可执行权限，依赖环境由doctor目标自动校验
 # ======================================================================
 
-# 可覆盖环境变量（仅本地开发默认值，生产/预发环境通过外部注入覆盖）
-MYSQL_PASSWORD    ?= root123456
-EMQX_API_PASSWORD ?= emqxadmin123
-GRAFANA_PASSWORD  ?= grafana123
-AIOT_JWT_SECRET   ?= jwt-local-dev-strong-secret-2026-32byte
-AIOT_INTERNAL     ?= internal-token-local-dev-20260826-24c
-AIOT_WEBHOOK      ?= emqx-webhook-local-dev-20260826-24ch
+# 敏感项（密码/密钥）不再提供弱默认值：一律由 compose/env/<env>/runtime.env 或外部注入
+# （make MYSQL_PASSWORD=xxx ... / shell export）。缺失时由 aiotctl 的 secret::require_secrets 阻断（fail-fast），
+# 杜绝弱密码 / 可预测 JWT 泄漏到 staging/prod。仅非敏感项保留默认值。
 AIOT_ENV          ?= dev
 IMAGE_TAG         ?= main
 
-# 统一导出环境变量，全部转发给aiotctl处理，本层不做任何业务解析
+# 统一导出环境变量，全部转发给aiotctl处理，本层不做任何业务解析（敏感项 pass-through，默认空）
 _EXPORT := MYSQL_PASSWORD=$(MYSQL_PASSWORD) \
 	EMQX_API_PASSWORD=$(EMQX_API_PASSWORD) \
 	GRAFANA_ADMIN_PASSWORD=$(GRAFANA_PASSWORD) \
@@ -41,7 +37,7 @@ AIOTCTL := $(_EXPORT) ./aiotctl
 	build build-jars build-images \
 	deploy deploy-prod deploy-staging \
 	migrate gate canary rollback reset \
-	verify verify-infra verify-local release-health \
+	verify verify-infra verify-local release-health artifact-check \
 	logs logs-infra logs-local logs-main \
 	ps ps-infra ps-local ps-main \
 	down clean \
@@ -166,6 +162,9 @@ verify-local: ## 验证local栈
 	@$(AIOTCTL) verify local
 release-health: ## 发布后健康门禁: make release-health SERVICES="aiot-gateway"
 	@$(AIOTCTL) release-health $(SERVICES)
+
+artifact-check: ## 部署前jar/镜像一致性校验
+	@$(AIOTCTL) artifact-check $(ARGS)
 
 observability: ## 观测栈up: make observability
 	@$(AIOTCTL) observability up

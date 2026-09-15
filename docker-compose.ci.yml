@@ -1,0 +1,12 @@
+services:
+  aiot-home-service:
+    ports:
+      - "18083:8083"
+
+  aiot-device-service:
+    ports:
+      - "18081:8081"
+
+  aiot-auth-service:
+    ports:
+      - "18082:8082"

@@ -48,6 +48,7 @@ services:
     environment:
       - AI_LLM_ENABLED=true
       - AI_LLM_BASE_URL=http://aiot-ollama:11434
+      # LOCAL-ONLY：本地 Ollama 无鉴权，占位 key 仅本机联调有效，严禁用于 staging/prod
       - AI_LLM_API_KEY=aiot-local
       - AI_LLM_MODEL=qwen2.5:1.5b
       - AI_LLM_TIMEOUT_MS=20000
@@ -121,6 +122,7 @@ services:
         APP_NAME: aiot-device-service
     networks: [aiot-net]
     environment:
+      # LOCAL-ONLY：绕过直传用户 JWT 校验，仅限本机联调，严禁复制到 staging/prod/compose 目录
       - AIOT_SECURITY_ALLOW_DIRECT_USER_JWT=true
     deploy:
       resources:
